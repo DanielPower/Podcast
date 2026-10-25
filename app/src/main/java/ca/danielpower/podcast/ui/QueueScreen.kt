@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.Chapter
+import ca.danielpower.podcast.data.DownloadProgress
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.Episode
 import ca.danielpower.podcast.data.EpisodeWithPodcast
@@ -54,6 +55,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 @Composable
 fun QueueScreen(
     queue: List<EpisodeWithPodcast>?,
+    downloadProgress: Map<Long, DownloadProgress.Bytes>,
     playerState: PlayerUiState,
     playingChapters: List<Chapter>,
     onOpen: (Long) -> Unit,
@@ -85,7 +87,7 @@ fun QueueScreen(
                 queue.isEmpty() -> EmptyMessage(
                     "Your queue is empty.\nNew episodes from your podcasts are added here once they've downloaded.",
                 )
-                else -> QueueList(queue, playerState, playingChapters, onOpen, onReorder, onDismiss, onRetryDownload)
+                else -> QueueList(queue, downloadProgress, playerState, playingChapters, onOpen, onReorder, onDismiss, onRetryDownload)
             }
         }
     }
@@ -103,6 +105,7 @@ private fun queueSummary(queue: List<EpisodeWithPodcast>): String {
 @Composable
 private fun QueueList(
     queue: List<EpisodeWithPodcast>,
+    downloadProgress: Map<Long, DownloadProgress.Bytes>,
     playerState: PlayerUiState,
     playingChapters: List<Chapter>,
     onOpen: (Long) -> Unit,
@@ -147,6 +150,7 @@ private fun QueueList(
                         Surface(shadowElevation = if (isDragging) 8.dp else 0.dp) {
                             QueueRow(
                                 item = item,
+                                progress = downloadProgress[item.episode.id],
                                 playing = item.episode.id == playingId,
                                 playerState = playerState,
                                 chapters = playingChapters,
@@ -225,6 +229,7 @@ private fun DismissibleRow(onDismiss: () -> Unit, content: @Composable () -> Uni
 @Composable
 private fun QueueRow(
     item: EpisodeWithPodcast,
+    progress: DownloadProgress.Bytes?,
     playing: Boolean,
     playerState: PlayerUiState,
     chapters: List<Chapter>,
@@ -260,9 +265,9 @@ private fun QueueRow(
             when {
                 playing -> PlayingStatus(playerState, chapters)
                 !item.isPlayable && !failed -> {
-                    DownloadProgress(episode)
+                    DownloadBar(episode, progress)
                     Text(
-                        downloadStatus(episode),
+                        downloadStatus(episode, progress),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
@@ -277,7 +282,7 @@ private fun QueueRow(
                         )
                     }
                     Text(
-                        if (failed) downloadStatus(episode) else episodeSubtitle(item),
+                        if (failed) downloadStatus(episode, null) else episodeSubtitle(item),
                         style = MaterialTheme.typography.labelMedium,
                         color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -321,11 +326,11 @@ private fun PlayingStatus(playerState: PlayerUiState, chapters: List<Chapter>) {
 }
 
 @Composable
-private fun DownloadProgress(episode: Episode) {
-    val total = episode.downloadTotalBytes
+private fun DownloadBar(episode: Episode, progress: DownloadProgress.Bytes?) {
+    val total = progress?.total
     val modifier = Modifier.width(120.dp).padding(top = 4.dp, bottom = 2.dp)
-    if (episode.downloadState == DownloadState.DOWNLOADING && total != null && total > 0) {
-        ThinBar(episode.downloadedBytes.toFloat() / total, MaterialTheme.colorScheme.tertiary, modifier)
+    if (episode.downloadState == DownloadState.DOWNLOADING && progress != null && total != null && total > 0) {
+        ThinBar(progress.downloaded.toFloat() / total, MaterialTheme.colorScheme.tertiary, modifier)
     } else {
         LinearProgressIndicator(
             modifier = modifier.height(3.dp),
@@ -336,13 +341,13 @@ private fun DownloadProgress(episode: Episode) {
     }
 }
 
-private fun downloadStatus(episode: Episode): String = when (episode.downloadState) {
+private fun downloadStatus(episode: Episode, progress: DownloadProgress.Bytes?): String = when (episode.downloadState) {
     DownloadState.DOWNLOADING -> {
-        val total = episode.downloadTotalBytes
-        if (total != null && total > 0) {
-            "Downloading · ${episode.downloadedBytes * 100 / total}%"
-        } else {
-            "Downloading · ${episode.downloadedBytes / (1024 * 1024)} MB"
+        val total = progress?.total
+        when {
+            progress == null -> "Downloading"
+            total != null && total > 0 -> "Downloading · ${progress.downloaded * 100 / total}%"
+            else -> "Downloading · ${progress.downloaded / (1024 * 1024)} MB"
         }
     }
     DownloadState.FAILED -> "Download failed. Tap to retry."

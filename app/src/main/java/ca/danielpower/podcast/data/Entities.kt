@@ -56,7 +56,9 @@ data class Episode(
     val artworkUrl: String?,
     val downloadState: DownloadState = DownloadState.NONE,
     val localPath: String? = null,
+    /** No longer written (progress lives in [DownloadProgress]); kept so the schema doesn't change. */
     val downloadedBytes: Long = 0,
+    /** No longer written, as [downloadedBytes]. */
     val downloadTotalBytes: Long? = null,
     val positionMs: Long = 0,
     val played: Boolean = false,

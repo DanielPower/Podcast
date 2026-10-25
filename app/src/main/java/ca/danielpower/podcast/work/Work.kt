@@ -11,6 +11,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import ca.danielpower.podcast.data.DownloadProgress
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.repository
 import ca.danielpower.podcast.settings
@@ -122,7 +123,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                     val total = body.contentLength().takeIf { it > 0 }?.plus(already)
                     var downloaded = already
                     var lastReport = 0L
-                    repository.setDownloadProgress(episodeId, downloaded, total)
+                    DownloadProgress.set(episodeId, downloaded, total)
                     FileOutputStream(partial, resuming).use { out ->
                         body.byteStream().use { input ->
                             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -134,7 +135,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                 val now = System.currentTimeMillis()
                                 if (now - lastReport >= PROGRESS_INTERVAL_MS) {
                                     lastReport = now
-                                    repository.setDownloadProgress(episodeId, downloaded, total)
+                                    DownloadProgress.set(episodeId, downloaded, total)
                                 }
                             }
                         }
@@ -159,6 +160,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 repository.setDownloadState(episodeId, DownloadState.FAILED)
                 Result.failure()
             }
+        } finally {
+            DownloadProgress.clear(episodeId)
         }
     }
 

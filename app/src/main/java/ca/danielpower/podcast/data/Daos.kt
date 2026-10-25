@@ -119,14 +119,8 @@ abstract class EpisodeDao {
     )
     abstract suspend fun getExpiredDownloads(cutoff: Long): List<Episode>
 
-    @Query(
-        """UPDATE episodes SET downloadState = :state, localPath = :localPath,
-        downloadedBytes = 0, downloadTotalBytes = NULL WHERE id = :id""",
-    )
+    @Query("UPDATE episodes SET downloadState = :state, localPath = :localPath WHERE id = :id")
     abstract suspend fun setDownload(id: Long, state: DownloadState, localPath: String?)
-
-    @Query("UPDATE episodes SET downloadedBytes = :downloaded, downloadTotalBytes = :total WHERE id = :id")
-    abstract suspend fun setDownloadProgress(id: Long, downloaded: Long, total: Long?)
 
     @Query("UPDATE episodes SET positionMs = :positionMs WHERE id = :id")
     abstract suspend fun setPosition(id: Long, positionMs: Long)
