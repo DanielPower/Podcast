@@ -122,6 +122,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 if (!partial.renameTo(target)) throw IOException("Could not move download into place")
             }
             repository.onDownloadComplete(episodeId, target)
+            repository.recordDownload(episodeId, target.length())
             Result.success()
         } catch (e: Exception) {
             partial.delete()

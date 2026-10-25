@@ -9,18 +9,19 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Podcast::class, Episode::class, Chapter::class], version = 5)
+@Database(entities = [Podcast::class, Episode::class, Chapter::class, DailyStats::class], version = 6)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
     abstract fun episodeDao(): EpisodeDao
+    abstract fun statsDao(): StatsDao
 
     companion object {
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "podcast.db")
                 // Version 1 shipped only in pre-release test builds, with more than one schema.
                 .fallbackToDestructiveMigrationFrom(1)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }
@@ -54,6 +55,18 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE podcasts ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1")
         db.execSQL("ALTER TABLE podcasts ADD COLUMN openedAt INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+/** Adds the per-day statistics. */
+private val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `daily_stats` (`day` INTEGER NOT NULL, `podcastId` INTEGER NOT NULL, " +
+                "`listenedMs` INTEGER NOT NULL, `silenceSavedMs` INTEGER NOT NULL, `finished` INTEGER NOT NULL, " +
+                "`downloadedBytes` INTEGER NOT NULL, PRIMARY KEY(`day`, `podcastId`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_daily_stats_podcastId` ON `daily_stats` (`podcastId`)")
     }
 }
 

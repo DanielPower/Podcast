@@ -96,6 +96,41 @@ data class Chapter(
     val imageUrl: String?,
 )
 
+/**
+ * What happened with one podcast on one day, for the Statistics tab. Rows are only ever added to, so
+ * the numbers outlive the episodes (and downloads) they came from. There's no foreign key: a
+ * podcast with statistics is kept (see [PodcastDao.deleteUnused]).
+ */
+@Entity(
+    tableName = "daily_stats",
+    primaryKeys = ["day", "podcastId"],
+    indices = [Index(value = ["podcastId"])],
+)
+data class DailyStats(
+    /** The local date, as days since 1970-01-01 (LocalDate.toEpochDay). */
+    val day: Long,
+    val podcastId: Long,
+    /** Time spent playing, in real time (so 1 hour at 2x counts as 1 hour). */
+    val listenedMs: Long = 0,
+    /** Real time skip silence cut out. */
+    val silenceSavedMs: Long = 0,
+    /** Episodes played to the end. */
+    val finished: Int = 0,
+    val downloadedBytes: Long = 0,
+)
+
+/** One podcast's [DailyStats] added up over a range of days. */
+data class PodcastStats(
+    val podcastId: Long,
+    /** Null if the podcast has been deleted since. */
+    val title: String?,
+    val artworkUrl: String?,
+    val listenedMs: Long,
+    val silenceSavedMs: Long,
+    val finished: Int,
+    val downloadedBytes: Long,
+)
+
 /** An episode along with the podcast it belongs to, for display. */
 data class EpisodeWithPodcast(
     @Embedded val episode: Episode,

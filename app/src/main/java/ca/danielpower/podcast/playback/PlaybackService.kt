@@ -2,6 +2,7 @@ package ca.danielpower.podcast.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
@@ -51,6 +52,11 @@ class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private val scope = MainScope()
 
+    // Listening time for the statistics, counted from when playback last started or was last recorded.
+    private var listeningEpisodeId: Long? = null
+    private var listeningSince = 0L
+    private var listeningSkippedUs = 0L
+
     private val currentEpisodeId: Long?
         get() = player.currentMediaItem?.mediaId?.toLongOrNull()
 
@@ -76,8 +82,10 @@ class PlaybackService : MediaLibraryService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) {
                     currentEpisodeId?.let { id -> scope.launch { repository.markPlaying(id) } }
+                    startListening()
                 } else {
                     saveCurrentPosition()
+                    recordListening(keepGoing = false)
                 }
             }
         })
@@ -109,7 +117,10 @@ class PlaybackService : MediaLibraryService() {
         scope.launch {
             while (true) {
                 delay(5_000)
-                if (player.isPlaying) saveCurrentPosition()
+                if (player.isPlaying) {
+                    saveCurrentPosition()
+                    recordListening(keepGoing = true)
+                }
             }
         }
     }
@@ -122,6 +133,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         saveCurrentPosition()
+        recordListening(keepGoing = false)
         scope.cancel()
         session?.release()
         session = null
@@ -175,6 +187,26 @@ class PlaybackService : MediaLibraryService() {
         val id = currentEpisodeId ?: return
         saveCurrentPosition()
         scope.launch { repository.dismiss(id) }
+    }
+
+    private fun startListening() {
+        listeningEpisodeId = currentEpisodeId
+        listeningSince = SystemClock.elapsedRealtime()
+        listeningSkippedUs = silenceSkipper.skippedUs
+    }
+
+    /**
+     * Adds the time played since [startListening] (or the last call) to the statistics, along with
+     * the real time skip silence saved in it. The episode is the one that was playing then, which by
+     * the time playback stops may already have been replaced by the next.
+     */
+    private fun recordListening(keepGoing: Boolean) {
+        val id = listeningEpisodeId ?: return
+        val listenedMs = SystemClock.elapsedRealtime() - listeningSince
+        val skippedUs = silenceSkipper.skippedUs - listeningSkippedUs
+        val savedMs = (skippedUs / 1000 / exoPlayer.playbackParameters.speed).toLong().coerceAtLeast(0)
+        scope.launch { repository.recordListening(id, listenedMs, savedMs) }
+        if (keepGoing) startListening() else listeningEpisodeId = null
     }
 
     private fun saveCurrentPosition() {
