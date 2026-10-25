@@ -23,6 +23,20 @@ data class ParsedEpisode(
     val publishedAt: Long,
     val durationMs: Long?,
     val artworkUrl: String?,
+    val link: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    /** Podcasting 2.0 `<podcast:chapters>` JSON file, fetched when the episode is opened. */
+    val chaptersUrl: String? = null,
+    /** Podlove Simple Chapters given inline in the feed. */
+    val inlineChapters: List<ParsedChapter> = emptyList(),
+)
+
+data class ParsedChapter(
+    val startMs: Long,
+    val title: String,
+    val url: String? = null,
+    val imageUrl: String? = null,
 )
 
 /** Minimal RSS 2.0 + iTunes podcast feed parser. */
@@ -72,6 +86,12 @@ object FeedParser {
         var pubDate: String? = null
         var duration: String? = null
         var artwork: String? = null
+        var contentHtml: String? = null
+        var link: String? = null
+        var season: String? = null
+        var episodeNumber: String? = null
+        var chaptersUrl: String? = null
+        var inlineChapters: List<ParsedChapter> = emptyList()
 
         val depth = parser.depth
         while (!(parser.next() == XmlPullParser.END_TAG && parser.depth == depth)) {
@@ -86,6 +106,12 @@ object FeedParser {
                 "pubDate" -> pubDate = readText(parser)
                 "itunes:duration" -> duration = readText(parser)
                 "itunes:image" -> artwork = parser.getAttributeValue(null, "href")
+                "content:encoded" -> contentHtml = readText(parser)
+                "link" -> link = readText(parser)
+                "itunes:season" -> season = readText(parser)
+                "itunes:episode" -> episodeNumber = readText(parser)
+                "podcast:chapters" -> chaptersUrl = parser.getAttributeValue(null, "url")
+                "psc:chapters" -> inlineChapters = readPodloveChapters(parser)
             }
         }
 
@@ -93,12 +119,53 @@ object FeedParser {
         return ParsedEpisode(
             guid = guid?.trim()?.takeIf { it.isNotEmpty() } ?: url,
             title = title?.trim().orEmpty().ifEmpty { "Untitled episode" },
-            description = description?.trim(),
+            // Full show notes are usually in content:encoded; description is often a short summary.
+            description = (contentHtml?.takeIf { it.isNotBlank() } ?: description)?.trim(),
             audioUrl = url,
             publishedAt = pubDate?.let(::parseDate) ?: 0L,
             durationMs = duration?.let(::parseDuration),
             artworkUrl = artwork,
+            link = link?.trim()?.takeIf { it.isNotEmpty() },
+            seasonNumber = season?.trim()?.toIntOrNull(),
+            episodeNumber = episodeNumber?.trim()?.toIntOrNull(),
+            chaptersUrl = chaptersUrl?.trim()?.takeIf { it.isNotEmpty() },
+            inlineChapters = inlineChapters,
         )
+    }
+
+    /** Reads `<psc:chapters>`, leaving the parser at its closing tag. */
+    private fun readPodloveChapters(parser: XmlPullParser): List<ParsedChapter> {
+        val chapters = mutableListOf<ParsedChapter>()
+        val depth = parser.depth
+        while (!(parser.next() == XmlPullParser.END_TAG && parser.depth == depth)) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
+            if (parser.eventType == XmlPullParser.START_TAG && parser.name == "psc:chapter") {
+                val start = parser.getAttributeValue(null, "start")?.let(::parseDuration) ?: continue
+                chapters += ParsedChapter(
+                    startMs = start,
+                    title = parser.getAttributeValue(null, "title")?.trim().orEmpty(),
+                    url = parser.getAttributeValue(null, "href"),
+                    imageUrl = parser.getAttributeValue(null, "image"),
+                )
+            }
+        }
+        return chapters.sortedBy { it.startMs }
+    }
+
+    /** Parses a Podcasting 2.0 JSON chapters file. Chapters marked `"toc": false` are left out. */
+    fun parseJsonChapters(json: String): List<ParsedChapter> {
+        val array = org.json.JSONObject(json).optJSONArray("chapters") ?: return emptyList()
+        return (0 until array.length()).mapNotNull { i ->
+            val item = array.getJSONObject(i)
+            if (!item.optBoolean("toc", true)) return@mapNotNull null
+            if (!item.has("startTime")) return@mapNotNull null
+            ParsedChapter(
+                startMs = (item.getDouble("startTime") * 1000).toLong(),
+                title = item.optString("title").trim(),
+                url = item.optString("url").takeIf { it.isNotBlank() },
+                imageUrl = item.optString("img").takeIf { it.isNotBlank() },
+            )
+        }.sortedBy { it.startMs }
     }
 
     /** Reads `<image><url>…</url></image>`, leaving the parser at the closing image tag. */

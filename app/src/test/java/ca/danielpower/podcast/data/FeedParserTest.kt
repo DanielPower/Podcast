@@ -19,4 +19,20 @@ class FeedParserTest {
         assertEquals(1_761_384_600_000L, FeedParser.parseDate("Sat, 25 Oct 2025 05:30:00 -0400"))
         assertNull(FeedParser.parseDate("yesterday"))
     }
+
+    @Test
+    fun parsesJsonChaptersSkippingHiddenOnes() {
+        val json = """
+            {"version": "1.2.0", "chapters": [
+                {"startTime": 95.5, "title": "Second", "url": "https://example.com"},
+                {"startTime": 0, "title": "Intro", "img": "https://example.com/a.jpg"},
+                {"startTime": 120, "title": "Hidden", "toc": false}
+            ]}
+        """.trimIndent()
+        val chapters = FeedParser.parseJsonChapters(json)
+        assertEquals(listOf(0L, 95_500L), chapters.map { it.startMs })
+        assertEquals(listOf("Intro", "Second"), chapters.map { it.title })
+        assertEquals("https://example.com/a.jpg", chapters[0].imageUrl)
+        assertEquals("https://example.com", chapters[1].url)
+    }
 }

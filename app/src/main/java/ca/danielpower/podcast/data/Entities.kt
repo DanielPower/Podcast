@@ -1,5 +1,6 @@
 package ca.danielpower.podcast.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -56,6 +57,34 @@ data class Episode(
     val queuePosition: Long? = null,
     /** When the episode last left the queue. Its download is kept for a week after this. */
     val removedFromQueueAt: Long? = null,
+    /** The episode's web page. */
+    val link: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val chaptersUrl: String? = null,
+    /** Whether chapters have been loaded into the chapters table (from the feed or [chaptersUrl]). */
+    @ColumnInfo(defaultValue = "0") val chaptersLoaded: Boolean = false,
+)
+
+@Entity(
+    tableName = "chapters",
+    primaryKeys = ["episodeId", "startMs"],
+    foreignKeys = [
+        ForeignKey(
+            entity = Episode::class,
+            parentColumns = ["id"],
+            childColumns = ["episodeId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["episodeId"])],
+)
+data class Chapter(
+    val episodeId: Long,
+    val startMs: Long,
+    val title: String,
+    val url: String?,
+    val imageUrl: String?,
 )
 
 /** An episode along with the podcast it belongs to, for display. */

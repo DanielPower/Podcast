@@ -122,4 +122,59 @@ abstract class EpisodeDao {
     open suspend fun reorderQueue(orderedIds: List<Long>) {
         orderedIds.forEachIndexed { index, id -> setQueuePosition(id, index.toLong()) }
     }
+
+    @Query("SELECT id FROM episodes WHERE podcastId = :podcastId AND guid = :guid")
+    abstract suspend fun getId(podcastId: Long, guid: String): Long?
+
+    @Query("$EPISODE_WITH_PODCAST WHERE e.id = :id")
+    abstract fun observeWithPodcast(id: Long): Flow<EpisodeWithPodcast?>
+
+    /** Fills in metadata that older versions of the app didn't store, for episodes already known. */
+    @Query(
+        """UPDATE episodes SET link = :link, seasonNumber = :seasonNumber, episodeNumber = :episodeNumber,
+        chaptersUrl = :chaptersUrl, description = :description WHERE podcastId = :podcastId AND guid = :guid""",
+    )
+    abstract suspend fun updateMetadata(
+        podcastId: Long,
+        guid: String,
+        link: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        chaptersUrl: String?,
+        description: String?,
+    )
+
+    @Transaction
+    open suspend fun updateAllMetadata(podcastId: Long, parsed: List<ParsedEpisode>) {
+        for (item in parsed) {
+            updateMetadata(
+                podcastId,
+                item.guid,
+                item.link,
+                item.seasonNumber,
+                item.episodeNumber,
+                item.chaptersUrl,
+                item.description,
+            )
+        }
+    }
+
+    @Query("SELECT * FROM chapters WHERE episodeId = :episodeId ORDER BY startMs")
+    abstract fun observeChapters(episodeId: Long): Flow<List<Chapter>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun insertChapters(chapters: List<Chapter>)
+
+    @Query("DELETE FROM chapters WHERE episodeId = :episodeId")
+    abstract suspend fun deleteChapters(episodeId: Long)
+
+    @Query("UPDATE episodes SET chaptersLoaded = 1 WHERE id = :episodeId")
+    abstract suspend fun markChaptersLoaded(episodeId: Long)
+
+    @Transaction
+    open suspend fun replaceChapters(episodeId: Long, chapters: List<Chapter>) {
+        deleteChapters(episodeId)
+        insertChapters(chapters)
+        markChaptersLoaded(episodeId)
+    }
 }

@@ -65,4 +65,5 @@ dependencies {
     implementation(libs.reorderable)
 
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
 }
