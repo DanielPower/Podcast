@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -143,34 +144,42 @@ private fun Header(
     onSubscribe: () -> Unit,
     onUnsubscribe: () -> Unit,
 ) {
-    Row(Modifier.padding(start = SideMargin, end = SideMargin, top = 8.dp, bottom = 16.dp)) {
-        Artwork(artworkUrl, 96.dp)
+    // The title, author and button fill the artwork's height, with the button level with its bottom.
+    Row(Modifier.padding(start = SideMargin, end = SideMargin, top = 8.dp)) {
+        Artwork(artworkUrl, HeaderArtSize)
         Spacer(Modifier.width(16.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            author?.let {
-                Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+        Column(Modifier.height(HeaderArtSize), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                author?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             // Subscribing is easily undone, so it takes one tap; unsubscribing asks first.
             if (subscribed == true) {
-                SecondaryButton(onClick = onUnsubscribe, modifier = Modifier.padding(top = 4.dp)) { Text("Unsubscribe") }
+                SecondaryButton(onClick = onUnsubscribe) { Text("Unsubscribe") }
             } else {
-                PrimaryButton(onClick = onSubscribe, enabled = subscribed != null, modifier = Modifier.padding(top = 4.dp)) {
-                    Text("Subscribe")
-                }
-            }
-            description?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+                PrimaryButton(onClick = onSubscribe, enabled = subscribed != null) { Text("Subscribe") }
             }
         }
     }
+    description?.let {
+        Text(
+            it,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(start = SideMargin, end = SideMargin, top = 12.dp),
+        )
+    }
+    Spacer(Modifier.height(16.dp))
     SectionLabel("Episodes", Modifier.padding(horizontal = SideMargin, vertical = 6.dp))
 }
 
@@ -218,3 +227,5 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
         }
     }
 }
+
+private val HeaderArtSize = 120.dp
