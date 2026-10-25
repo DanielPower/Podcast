@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,16 +23,18 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,11 +42,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -54,8 +63,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -117,7 +130,10 @@ fun EpisodeScreen(
     skipForwardSeconds: Int,
     speed: Float,
     speedPresets: List<Float>,
+    skipSilence: Boolean,
+    silenceKeepMs: Int,
     onSpeed: (Float) -> Unit,
+    onSkipSilence: (Boolean) -> Unit,
     onBack: () -> Unit,
     onPlay: (startMs: Long?) -> Unit,
     onPlayNext: () -> Unit,
@@ -126,6 +142,7 @@ fun EpisodeScreen(
 ) {
     val isCurrent = item != null && player != null && playerState.episodeId == item.episode.id
     var tab by rememberSaveable { mutableIntStateOf(EpisodeTab.Notes.ordinal) }
+    var speedSheetOpen by remember { mutableStateOf(false) }
 
     val positionMs = if (isCurrent) playerState.positionMs else item?.episode?.positionMs ?: 0
     val durationMs = if (isCurrent && playerState.durationMs > 0) {
@@ -178,10 +195,21 @@ fun EpisodeScreen(
             skipBackSeconds = skipBackSeconds,
             skipForwardSeconds = skipForwardSeconds,
             speed = speed,
-            speedPresets = speedPresets,
-            onSpeed = onSpeed,
+            onOpenSpeed = { speedSheetOpen = true },
             onPlay = onPlay,
             onPlayNext = onPlayNext,
+        )
+    }
+
+    if (speedSheetOpen) {
+        SpeedSheet(
+            speed = speed,
+            presets = speedPresets,
+            skipSilence = skipSilence,
+            silenceKeepMs = silenceKeepMs,
+            onSpeed = onSpeed,
+            onSkipSilence = onSkipSilence,
+            onDismiss = { speedSheetOpen = false },
         )
     }
 }
@@ -433,8 +461,7 @@ private fun BottomPane(
     skipBackSeconds: Int,
     skipForwardSeconds: Int,
     speed: Float,
-    speedPresets: List<Float>,
-    onSpeed: (Float) -> Unit,
+    onOpenSpeed: () -> Unit,
     onPlay: (Long?) -> Unit,
     onPlayNext: () -> Unit,
 ) {
@@ -447,7 +474,7 @@ private fun BottomPane(
     // Every row has a fixed height, so the pane is the same size in both states.
     Column(Modifier.fillMaxWidth().background(MaterialTheme.podcastColors.raised)) {
         HorizontalDivider(color = colors.outlineVariant)
-        Column(Modifier.navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 8.dp)) {
+        Column(Modifier.navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)) {
             Row(Modifier.fillMaxWidth().height(18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = if (isCurrent) {
@@ -477,30 +504,33 @@ private fun BottomPane(
                 activeColor = if (isCurrent) colors.primary else colors.onSurface,
                 onSeek = if (isCurrent) ({ ms: Long -> player?.seekTo(ms) }) else null,
             )
-            Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    formatDuration(positionMs),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                SpeedPresets(speed, speedPresets, onSpeed)
+            Row(Modifier.fillMaxWidth().height(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatDuration(positionMs), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                 Text(
                     if (durationMs > 0) "−${formatDuration((durationMs - positionMs).coerceAtLeast(0))}" else "",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.onSurfaceVariant,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.weight(1f),
                 )
             }
             Row(
-                Modifier.fillMaxWidth().height(60.dp),
+                Modifier.fillMaxWidth().padding(top = 4.dp).height(60.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = if (isCurrent) Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(10.dp),
             ) {
                 if (isCurrent && player != null) {
-                    IconButton(onClick = { previousChapter(player, chapters) }, enabled = chapters.isNotEmpty()) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous chapter")
+                    TextButton(
+                        onClick = onOpenSpeed,
+                        modifier = Modifier.size(48.dp).semantics { contentDescription = "Playback speed ${formatSpeed(speed)}" },
+                        shape = RoundedCornerShape(4.dp),
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text(
+                            formatSpeed(speed),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.onSurface,
+                            maxLines = 1,
+                        )
                     }
                     IconButton(onClick = { player.seekBack() }, modifier = Modifier.size(52.dp)) {
                         SkipIcon(skipBackSeconds, forward = false, size = 28.dp)
@@ -546,50 +576,114 @@ private fun BottomPane(
     }
 }
 
-/** The speed presets as a row of small buttons; the one in use is in the accent colour. */
+/** Speed and skip silence, in a sheet at the bottom so it opens under the thumb. Tapping outside closes it. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpeedPresets(speed: Float, presets: List<Float>, onSpeed: (Float) -> Unit) {
+private fun SpeedSheet(
+    speed: Float,
+    presets: List<Float>,
+    skipSilence: Boolean,
+    silenceKeepMs: Int,
+    onSpeed: (Float) -> Unit,
+    onSkipSilence: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
-    Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        for (preset in presets) {
-            val selected = preset == speed
-            Box(
-                Modifier
-                    .height(26.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .then(if (selected) Modifier.border(1.dp, colors.primary, RoundedCornerShape(4.dp)) else Modifier)
-                    .selectable(selected = selected, role = Role.RadioButton, onClick = { onSpeed(preset) })
-                    .padding(horizontal = 9.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    formatSpeed(preset),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (selected) colors.primary else colors.onSurfaceVariant,
-                )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp),
+        containerColor = MaterialTheme.podcastColors.raised,
+        dragHandle = {
+            Box(Modifier.padding(top = 8.dp, bottom = 4.dp).size(width = 36.dp, height = 4.dp).background(colors.outlineVariant, RoundedCornerShape(2.dp)))
+        },
+    ) {
+        Column(
+            Modifier.navigationBarsPadding().padding(start = SideMargin, end = SideMargin, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("Speed", Modifier.weight(1f))
+                Text(formatSpeed(speed), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = colors.primary)
             }
-        }
-        // A speed set before the presets changed still shows, so it's clear what's playing.
-        if (presets.isNotEmpty() && speed !in presets) {
-            Box(Modifier.height(26.dp).padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
-                Text(formatSpeed(speed), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = colors.primary)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StepButton(Icons.Default.Remove, "Slower", enabled = speed > MIN_SPEED) { onSpeed(snapSpeed(speed - SPEED_STEP)) }
+                Slider(
+                    value = speed,
+                    onValueChange = { onSpeed(snapSpeed(it)) },
+                    valueRange = MIN_SPEED..MAX_SPEED,
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = MaterialTheme.podcastColors.track,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                StepButton(Icons.Default.Add, "Faster", enabled = speed < MAX_SPEED) { onSpeed(snapSpeed(speed + SPEED_STEP)) }
+            }
+            Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (preset in presets) {
+                    val selected = preset == speed
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .border(1.dp, colors.outline, RoundedCornerShape(4.dp))
+                            .background(if (selected) colors.onSurface else Color.Transparent)
+                            .selectable(selected = selected, role = Role.RadioButton, onClick = { onSpeed(preset) }),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            formatSpeed(preset),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) colors.surface else colors.onSurface,
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(color = colors.outlineVariant)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .toggleable(value = skipSilence, role = Role.Switch, onValueChange = onSkipSilence),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Skip silence", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Pauses over $silenceKeepMs ms are shortened",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
+                PaperSwitch(skipSilence, onSkipSilence)
             }
         }
     }
 }
 
-/** Jumps to the start of the current chapter, or to the previous one if we're near its start. */
-private fun previousChapter(player: Player, chapters: List<Chapter>) {
-    val position = player.currentPosition
-    val index = chapters.indexOfLast { it.startMs <= position }
-    if (index < 0) {
-        player.seekTo(0)
-        return
+@Composable
+private fun StepButton(icon: ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(48.dp).border(1.dp, if (enabled) colors.outline else colors.outlineVariant, RoundedCornerShape(4.dp)),
+    ) {
+        Icon(icon, contentDescription = description)
     }
-    val target = if (position - chapters[index].startMs > 3_000 || index == 0) index else index - 1
-    player.seekTo(chapters[target].startMs)
 }
+
+private const val MIN_SPEED = 0.5f
+private const val MAX_SPEED = 3f
+private const val SPEED_STEP = 0.05f
+
+/** Rounds to the nearest 0.05× within range, so the slider and stepper land on tidy values. */
+private fun snapSpeed(speed: Float): Float =
+    (Math.round(speed / SPEED_STEP) * SPEED_STEP).coerceIn(MIN_SPEED, MAX_SPEED).let { Math.round(it * 100) / 100f }
 
 private fun notPlayingStatus(played: Boolean, positionMs: Long, durationMs: Long, queueIndex: Int?): String {
     val parts = mutableListOf<String>()

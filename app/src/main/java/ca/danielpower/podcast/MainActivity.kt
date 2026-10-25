@@ -280,7 +280,10 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         skipForwardSeconds = appSettings.skipForwardSeconds,
                         speed = appSettings.playbackSpeed,
                         speedPresets = appSettings.speedPresets,
+                        skipSilence = appSettings.skipSilence,
+                        silenceKeepMs = appSettings.silenceKeepMs,
                         onSpeed = { speed -> context.settings.update { it.copy(playbackSpeed = speed) } },
+                        onSkipSilence = { on -> context.settings.update { it.copy(skipSilence = on) } },
                         onBack = { navController.popBackStack() },
                         onPlay = { startMs ->
                             vm.prepareToPlay()
