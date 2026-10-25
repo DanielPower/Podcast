@@ -76,7 +76,7 @@ fun SearchScreen(
             TextField(
                 value = state.query,
                 onValueChange = onQueryChange,
-                placeholder = { Text("Search for a podcast") },
+                placeholder = { Text("Search, or paste a feed URL") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {

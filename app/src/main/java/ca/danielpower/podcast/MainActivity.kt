@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,12 +31,14 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,8 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -58,9 +61,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.work.WorkInfo
 import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.Chapter
+import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.DownloadProgress
+import ca.danielpower.podcast.data.feedUrlOrNull
 import ca.danielpower.podcast.playback.PlayerConnection
 import ca.danielpower.podcast.playback.rememberPlayerUiState
 import ca.danielpower.podcast.ui.AppViewModelFactory
@@ -84,9 +90,12 @@ import ca.danielpower.podcast.ui.SettingsScreen
 import ca.danielpower.podcast.ui.StatisticsScreen
 import ca.danielpower.podcast.ui.StatisticsViewModel
 import ca.danielpower.podcast.ui.isDark
+import ca.danielpower.podcast.ui.podcastCount
+import ca.danielpower.podcast.ui.rememberOnUnmeteredNetwork
 import ca.danielpower.podcast.work.Refresh
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
 
@@ -196,6 +205,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                     val vm: QueueViewModel = viewModel(factory = AppViewModelFactory)
                     val queue by vm.queue.collectAsStateWithLifecycle()
                     val downloadProgress by DownloadProgress.all.collectAsStateWithLifecycle()
+                    val unmetered = rememberOnUnmeteredNetwork()
                     QueueScreen(
                         queue = queue,
                         downloadProgress = downloadProgress,
@@ -205,7 +215,12 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         onReorder = vm::reorder,
                         onSwitchTo = { id -> connection?.switchTo(id) },
                         onDismiss = vm::dismiss,
+                        onUndoDismiss = { dismissed ->
+                            vm.undoDismiss(dismissed)
+                            if (dismissed.wasPlaying) connection?.switchTo(dismissed.episodeId)
+                        },
                         onRetryDownload = vm::retryDownload,
+                        waitingForWifi = appSettings.wifiOnly && !unmetered,
                         onOpenHistory = { navController.navigate(HISTORY_ROUTE) { launchSingleTop = true } },
                         onOpenSettings = openSettings,
                     )
@@ -227,12 +242,29 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                 TabPage(chromeHeight) {
                     val vm: PodcastsViewModel = viewModel(factory = AppViewModelFactory)
                     val podcasts by vm.podcasts.collectAsStateWithLifecycle()
+                    val snackbar = remember { SnackbarHostState() }
+                    val scope = rememberCoroutineScope()
+                    // The refresh the user asked for, followed until it ends and its result is shown.
+                    var refreshId by rememberSaveable { mutableStateOf<String?>(null) }
+                    val refresh by remember(refreshId) {
+                        refreshId?.let { Refresh.observe(context, UUID.fromString(it)) } ?: flowOf(null)
+                    }.collectAsStateWithLifecycle(null)
+                    LaunchedEffect(refresh?.state) {
+                        val info = refresh ?: return@LaunchedEffect
+                        if (!info.state.isFinished) return@LaunchedEffect
+                        refreshId = null
+                        val message = refreshMessage(info)
+                        // Not in this effect, which clearing refreshId restarts.
+                        scope.launch { snackbar.showSnackbar(message) }
+                    }
                     PodcastsScreen(
                         podcasts = podcasts,
                         onOpen = { navController.navigate("podcast/$it") },
                         onSearch = { navController.navigate(SEARCH_ROUTE) },
-                        onRefresh = { Refresh.now(context) },
+                        refreshing = refreshId != null,
+                        onRefresh = { refreshId = Refresh.now(context).toString() },
                         onOpenSettings = openSettings,
+                        snackbar = snackbar,
                     )
                 }
             }
@@ -245,6 +277,24 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
             }
             composable(SETTINGS_ROUTE) {
                 FullPage {
+                    val opmlImport by context.repository.opmlImport.collectAsStateWithLifecycle()
+                    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                        if (uri != null) context.repository.importOpml(uri)
+                    }
+                    var exportMessage by remember { mutableStateOf<String?>(null) }
+                    val exportLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.CreateDocument("text/x-opml"),
+                    ) { uri ->
+                        if (uri != null) {
+                            scope.launch {
+                                exportMessage = try {
+                                    "Saved ${podcastCount(context.repository.exportOpml(uri))}"
+                                } catch (e: Exception) {
+                                    "Couldn't save the file"
+                                }
+                            }
+                        }
+                    }
                     SettingsScreen(
                         settings = appSettings,
                         dark = dark,
@@ -257,6 +307,11 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                                 scope.launch { context.repository.requeueWaitingDownloads() }
                             }
                         },
+                        opmlImport = opmlImport,
+                        // Files shared as OPML come with all sorts of types, so any file can be picked.
+                        onImport = { importLauncher.launch(arrayOf("*/*")) },
+                        exportMessage = exportMessage,
+                        onExport = { exportLauncher.launch("podcasts.opml") },
                         onBack = { navController.popBackStack() },
                     )
                 }
@@ -266,22 +321,31 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                     val vm: SearchViewModel = viewModel(factory = AppViewModelFactory)
                     val state by vm.state.collectAsStateWithLifecycle()
                     val subscribed by vm.subscribed.collectAsStateWithLifecycle()
+                    val openResult = { result: DirectoryResult ->
+                        val args = listOf(
+                            "feedUrl" to result.feedUrl,
+                            "title" to result.title,
+                            "author" to result.author,
+                            "artworkUrl" to result.artworkUrl,
+                        ).mapNotNull { (name, value) -> value?.let { "$name=${Uri.encode(it)}" } }
+                        navController.navigate("podcast?" + args.joinToString("&"))
+                    }
                     SearchScreen(
                         state = state,
                         subscribedFeedUrls = subscribed,
                         onQueryChange = vm::setQuery,
-                        onSearch = vm::search,
+                        // A pasted feed URL opens that podcast, for feeds the directory doesn't list.
+                        onSearch = {
+                            val feedUrl = feedUrlOrNull(state.query)
+                            if (feedUrl != null) {
+                                openResult(DirectoryResult(title = "", author = null, feedUrl = feedUrl, artworkUrl = null))
+                            } else {
+                                vm.search()
+                            }
+                        },
                         onClear = vm::clearSearch,
                         onSubscribe = vm::subscribe,
-                        onOpen = { result ->
-                            val args = listOf(
-                                "feedUrl" to result.feedUrl,
-                                "title" to result.title,
-                                "author" to result.author,
-                                "artworkUrl" to result.artworkUrl,
-                            ).mapNotNull { (name, value) -> value?.let { "$name=${Uri.encode(it)}" } }
-                            navController.navigate("podcast?" + args.joinToString("&"))
-                        },
+                        onOpen = openResult,
                         onBack = { navController.popBackStack() },
                     )
                 }
@@ -365,6 +429,22 @@ private fun PodcastPage(openEpisode: (Long) -> Unit, onBack: () -> Unit) {
 
 private const val EPISODE_ROUTE = "episode/{episodeId}"
 private const val PODCAST_FROM_SEARCH_ROUTE = "podcast?feedUrl={feedUrl}&title={title}&author={author}&artworkUrl={artworkUrl}"
+
+/** What to tell the user once the refresh they asked for has ended. */
+private fun refreshMessage(info: WorkInfo): String {
+    val output = info.outputData
+    val newEpisodes = output.getInt(Refresh.KEY_NEW_EPISODES, 0)
+    val failed = output.getInt(Refresh.KEY_FAILED_FEEDS, 0)
+    val feeds = output.getInt(Refresh.KEY_FEEDS, 0)
+    return when {
+        info.state != WorkInfo.State.SUCCEEDED -> "Couldn't check for new episodes"
+        feeds > 0 && failed == feeds -> "Couldn't reach any feeds. Check your connection."
+        newEpisodes == 0 && failed > 0 -> "No new episodes ($failed ${if (failed == 1) "feed" else "feeds"} couldn't be reached)"
+        newEpisodes == 0 -> "No new episodes"
+        newEpisodes == 1 -> "1 new episode"
+        else -> "$newEpisodes new episodes"
+    }
+}
 
 /** A podcast's page, opened from the subscriptions or from search. */
 private fun isPodcastRoute(route: String) = route.startsWith("podcast/") || route.startsWith("podcast?")

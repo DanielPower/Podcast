@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +43,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.AppSettings
+import ca.danielpower.podcast.data.OpmlImport
 import ca.danielpower.podcast.data.Scheme
 import ca.danielpower.podcast.data.ThemeMode
 import ca.danielpower.podcast.data.formatSpeed
@@ -54,6 +56,10 @@ fun SettingsScreen(
     settings: AppSettings,
     dark: Boolean,
     onChange: ((AppSettings) -> AppSettings) -> Unit,
+    opmlImport: OpmlImport?,
+    onImport: () -> Unit,
+    exportMessage: String?,
+    onExport: () -> Unit,
     onBack: () -> Unit,
 ) {
     var picker by remember { mutableStateOf<Picker?>(null) }
@@ -124,6 +130,22 @@ fun SettingsScreen(
             ChoiceRow("Keep removed episodes", keepLabel(settings.keepDays), hint = "Then the download is deleted") {
                 picker = Picker.KEEP
             }
+
+            SettingsSection("Subscriptions")
+            SettingRow(
+                "Import from OPML",
+                hint = importHint(opmlImport),
+                onClick = if (opmlImport?.running == true) null else onImport,
+            ) {
+                if (opmlImport?.running == true) {
+                    CircularProgressIndicator(
+                        Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+            SettingRow("Export to OPML", hint = exportMessage ?: "Save your subscriptions to a file", onClick = onExport)
         }
     }
 
@@ -168,6 +190,19 @@ fun SettingsScreen(
         null -> Unit
     }
 }
+
+private fun importHint(state: OpmlImport?): String = when {
+    state == null -> "Subscribe to podcasts from another app"
+    state.unreadable -> "Couldn't read that file"
+    state.reading -> "Reading the file…"
+    state.running -> "Adding ${state.done + 1} of ${state.total}…"
+    state.total == 0 -> "No podcasts found in that file"
+    state.failed > 0 -> "Added ${podcastCount(state.added)}, ${state.failed} couldn't be reached"
+    state.added == 0 -> "Already subscribed to all of them"
+    else -> "Added ${podcastCount(state.added)}"
+}
+
+fun podcastCount(n: Int) = if (n == 1) "1 podcast" else "$n podcasts"
 
 private fun keepLabel(days: Int): String = when (days) {
     1 -> "1 day"

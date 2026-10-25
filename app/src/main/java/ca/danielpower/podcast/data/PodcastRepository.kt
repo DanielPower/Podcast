@@ -1,15 +1,37 @@
 package ca.danielpower.podcast.data
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import ca.danielpower.podcast.work.Downloads
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.time.LocalDate
+
+data class RefreshResult(val newEpisodes: Int, val failedFeeds: Int, val feeds: Int)
+
+/** Progress of importing subscriptions from an OPML file. */
+data class OpmlImport(
+    /** The file is still being read, so [total] isn't known yet. */
+    val reading: Boolean = false,
+    val total: Int = 0,
+    val done: Int = 0,
+    val added: Int = 0,
+    val failed: Int = 0,
+    /** Set when the file couldn't be read at all. */
+    val unreadable: Boolean = false,
+) {
+    val running get() = reading || (!unreadable && done < total)
+}
 
 class PodcastRepository(
     private val context: Context,
@@ -22,6 +44,9 @@ class PodcastRepository(
     private val stats = db.statsDao()
 
     val directory = DirectorySearch(client)
+
+    /** For work that should finish even if the screen that started it is closed. */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun observePodcasts() = podcasts.observeSubscribed()
     fun observePodcast(id: Long) = podcasts.observe(id)
@@ -88,6 +113,55 @@ class PodcastRepository(
         podcasts.setSubscribed(podcastId, false, now)
     }
 
+    private val _opmlImport = MutableStateFlow<OpmlImport?>(null)
+    val opmlImport = _opmlImport.asStateFlow()
+
+    /**
+     * Subscribes to every feed in an OPML file, in the background. Unlike subscribing from search,
+     * nothing is downloaded: a long list would otherwise fill the queue at once.
+     */
+    fun importOpml(uri: Uri) {
+        if (_opmlImport.value?.running == true) return
+        _opmlImport.value = OpmlImport(reading = true)
+        appScope.launch {
+            val urls = try {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)!!.use { Opml.parseFeedUrls(it) }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Couldn't read OPML file", e)
+                _opmlImport.value = OpmlImport(unreadable = true)
+                return@launch
+            }
+            var progress = OpmlImport(total = urls.size)
+            _opmlImport.value = progress
+            for (url in urls) {
+                progress = try {
+                    val existing = podcasts.getByFeedUrl(url)
+                    if (existing?.subscribed == true) {
+                        progress.copy(done = progress.done + 1)
+                    } else {
+                        podcasts.setSubscribed(existing?.id ?: addFeed(url), true, System.currentTimeMillis())
+                        progress.copy(done = progress.done + 1, added = progress.added + 1)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Couldn't import $url", e)
+                    progress.copy(done = progress.done + 1, failed = progress.failed + 1)
+                }
+                _opmlImport.value = progress
+            }
+        }
+    }
+
+    /** Writes the subscriptions to an OPML file, and returns how many there were. */
+    suspend fun exportOpml(uri: Uri): Int {
+        val subscribed = podcasts.getSubscribed()
+        withContext(Dispatchers.IO) {
+            context.contentResolver.openOutputStream(uri, "wt")!!.use { Opml.write(subscribed.sortedBy { p -> p.title.lowercase() }, it) }
+        }
+        return subscribed.size
+    }
+
     /** Adds a feed's podcast and episodes, unsubscribed, and returns the podcast's id. */
     private suspend fun addFeed(feedUrl: String): Long {
         val feed = fetchFeed(feedUrl)
@@ -110,17 +184,23 @@ class PodcastRepository(
     }
 
     /** Checks every subscribed feed for new episodes and, if auto-download is on, starts downloading them. */
-    suspend fun refreshAll() {
-        for (podcast in podcasts.getSubscribed()) {
+    suspend fun refreshAll(): RefreshResult {
+        val subscribed = podcasts.getSubscribed()
+        var newEpisodes = 0
+        var failed = 0
+        for (podcast in subscribed) {
             try {
-                refresh(podcast)
+                newEpisodes += refresh(podcast)
             } catch (e: Exception) {
                 Log.w(TAG, "Refresh failed for ${podcast.feedUrl}", e)
+                failed++
             }
         }
+        return RefreshResult(newEpisodes, failed, subscribed.size)
     }
 
-    private suspend fun refresh(podcast: Podcast) {
+    /** Returns how many new episodes the feed had. */
+    private suspend fun refresh(podcast: Podcast): Int {
         val feed = fetchFeed(podcast.feedUrl)
         podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.artworkUrl, feed.description)
         val known = episodes.getGuids(podcast.id).toHashSet()
@@ -128,7 +208,9 @@ class PodcastRepository(
         episodes.updateAllMetadata(podcast.id, old)
         val ids = episodes.insertAll(fresh.map { it.toEntity(podcast.id) })
         saveInlineChapters(podcast.id, feed.episodes)
-        if (podcast.subscribed && settings.current.autoDownload) ids.filter { it > 0 }.forEach { startDownload(it) }
+        val added = ids.filter { it > 0 }
+        if (podcast.subscribed && settings.current.autoDownload) added.forEach { startDownload(it) }
+        return added.size
     }
 
     /** Stores chapters given inline in the feed, for episodes whose chapters aren't loaded yet. */
@@ -202,6 +284,13 @@ class PodcastRepository(
             Downloads.cancel(context, episodeId)
             partialFile(episodeId).delete()
         }
+    }
+
+    /** Undoes [dismiss]: puts the episode back where it was, restarting its download if that was cancelled. */
+    suspend fun restoreToQueue(episodeId: Long, queuePosition: Long) {
+        episodes.setQueuePosition(episodeId, queuePosition)
+        val episode = episodes.get(episodeId) ?: return
+        if (episode.downloadState != DownloadState.DOWNLOADED) startDownload(episodeId)
     }
 
     /** Called when an episode plays to the end. */

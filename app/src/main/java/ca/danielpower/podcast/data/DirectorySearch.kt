@@ -3,6 +3,7 @@ package ca.danielpower.podcast.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -14,6 +15,22 @@ data class DirectoryResult(
     val feedUrl: String,
     val artworkUrl: String?,
 )
+
+/**
+ * The feed URL in a search box's text, when it holds one instead of search words. `feed://` and
+ * `pcast://` links (as some sites publish) become https.
+ */
+fun feedUrlOrNull(text: String): String? {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() }) return null
+    val lower = trimmed.lowercase()
+    val url = when {
+        lower.startsWith("http://") || lower.startsWith("https://") -> trimmed
+        lower.startsWith("feed://") || lower.startsWith("pcast://") -> "https://" + trimmed.substringAfter("://")
+        else -> return null
+    }
+    return url.toHttpUrlOrNull()?.toString()
+}
 
 /** Searches the Apple Podcasts directory, which needs no API key. */
 class DirectorySearch(private val client: OkHttpClient) {

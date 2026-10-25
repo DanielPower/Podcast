@@ -27,6 +27,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -37,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +54,7 @@ import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.Episode
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.playback.PlayerUiState
+import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -62,10 +68,28 @@ fun QueueScreen(
     onReorder: (List<Long>) -> Unit,
     onSwitchTo: (Long) -> Unit,
     onDismiss: (Long) -> Unit,
+    onUndoDismiss: (Dismissed) -> Unit,
     onRetryDownload: (Long) -> Unit,
+    waitingForWifi: Boolean,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // A swipe is instant, so it can be taken back for a few seconds.
+    val dismiss = { dismissed: Dismissed ->
+        onDismiss(dismissed.episodeId)
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar(
+                "Removed \u201c${dismissed.title}\u201d",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) onUndoDismiss(dismissed)
+        }
+        Unit
+    }
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("Queue", Icons.AutoMirrored.Filled.QueueMusic) {
             if (!queue.isNullOrEmpty()) {
@@ -88,11 +112,18 @@ fun QueueScreen(
                 queue.isEmpty() -> EmptyMessage(
                     "Your queue is empty.\nNew episodes from your podcasts are added here once they've downloaded.",
                 )
-                else -> QueueList(queue, downloadProgress, playerState, playingChapters, onOpen, onReorder, onSwitchTo, onDismiss, onRetryDownload)
+                else -> QueueList(
+                    queue, downloadProgress, playerState, playingChapters, waitingForWifi,
+                    onOpen, onReorder, onSwitchTo, dismiss, onRetryDownload,
+                )
             }
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
     }
 }
+
+/** An episode swiped out of the queue, with what's needed to put it back. */
+data class Dismissed(val episodeId: Long, val title: String, val queuePosition: Long, val wasPlaying: Boolean)
 
 private fun queueSummary(queue: List<EpisodeWithPodcast>): String {
     val count = if (queue.size == 1) "1 episode" else "${queue.size} episodes"
@@ -109,10 +140,11 @@ private fun QueueList(
     downloadProgress: Map<Long, DownloadProgress.Bytes>,
     playerState: PlayerUiState,
     playingChapters: List<Chapter>,
+    waitingForWifi: Boolean,
     onOpen: (Long) -> Unit,
     onReorder: (List<Long>) -> Unit,
     onSwitchTo: (Long) -> Unit,
-    onDismiss: (Long) -> Unit,
+    onDismiss: (Dismissed) -> Unit,
     onRetryDownload: (Long) -> Unit,
 ) {
     // A local copy that follows the drag; written back to the database when the drag ends.
@@ -146,13 +178,21 @@ private fun QueueList(
                     DismissibleRow(
                         onDismiss = {
                             items = items.filter { it.episode.id != item.episode.id }
-                            onDismiss(item.episode.id)
+                            onDismiss(
+                                Dismissed(
+                                    episodeId = item.episode.id,
+                                    title = item.episode.title,
+                                    queuePosition = item.episode.queuePosition ?: 0,
+                                    wasPlaying = item.episode.id == playingId,
+                                ),
+                            )
                         },
                     ) {
                         Surface(shadowElevation = if (isDragging) 8.dp else 0.dp) {
                             QueueRow(
                                 item = item,
                                 progress = downloadProgress[item.episode.id],
+                                waitingForWifi = waitingForWifi,
                                 playing = item.episode.id == playingId,
                                 playerState = playerState,
                                 chapters = playingChapters,
@@ -242,6 +282,7 @@ private fun DismissibleRow(onDismiss: () -> Unit, content: @Composable () -> Uni
 private fun QueueRow(
     item: EpisodeWithPodcast,
     progress: DownloadProgress.Bytes?,
+    waitingForWifi: Boolean,
     playing: Boolean,
     playerState: PlayerUiState,
     chapters: List<Chapter>,
@@ -277,9 +318,15 @@ private fun QueueRow(
             when {
                 playing -> PlayingStatus(playerState, chapters)
                 !item.isPlayable && !failed -> {
-                    DownloadBar(episode, progress)
+                    // Waiting for Wi-Fi could take hours, so no busy animation for it.
+                    val wifi = waitingForWifi && episode.downloadState == DownloadState.QUEUED
+                    if (wifi) {
+                        ThinBar(0f, MaterialTheme.colorScheme.tertiary, Modifier.width(120.dp).padding(top = 4.dp, bottom = 2.dp))
+                    } else {
+                        DownloadBar(episode, progress)
+                    }
                     Text(
-                        downloadStatus(episode, progress),
+                        if (wifi) "Waiting for Wi-Fi" else downloadStatus(episode, progress),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
