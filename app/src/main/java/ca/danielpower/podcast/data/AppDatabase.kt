@@ -6,8 +6,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Podcast::class, Episode::class], version = 2)
+@Database(entities = [Podcast::class, Episode::class, Chapter::class], version = 3)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
@@ -18,7 +20,25 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, "podcast.db")
                 // Version 1 shipped only in pre-release test builds, with more than one schema.
                 .fallbackToDestructiveMigrationFrom(1)
+                .addMigrations(MIGRATION_2_3)
                 .build()
+    }
+}
+
+/** Adds episode metadata (web page, season/episode numbers, chapters) and the chapters table. */
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE episodes ADD COLUMN link TEXT")
+        db.execSQL("ALTER TABLE episodes ADD COLUMN seasonNumber INTEGER")
+        db.execSQL("ALTER TABLE episodes ADD COLUMN episodeNumber INTEGER")
+        db.execSQL("ALTER TABLE episodes ADD COLUMN chaptersUrl TEXT")
+        db.execSQL("ALTER TABLE episodes ADD COLUMN chaptersLoaded INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `chapters` (`episodeId` INTEGER NOT NULL, `startMs` INTEGER NOT NULL, " +
+                "`title` TEXT NOT NULL, `url` TEXT, `imageUrl` TEXT, PRIMARY KEY(`episodeId`, `startMs`), " +
+                "FOREIGN KEY(`episodeId`) REFERENCES `episodes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapters_episodeId` ON `chapters` (`episodeId`)")
     }
 }
 

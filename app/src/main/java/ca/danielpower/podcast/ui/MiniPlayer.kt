@@ -1,5 +1,6 @@
 package ca.danielpower.podcast.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +16,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,19 +27,28 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
+import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.playback.PlayerUiState
 import coil.compose.AsyncImage
 
 @Composable
-fun MiniPlayer(state: PlayerUiState, player: Player?, modifier: Modifier = Modifier) {
+fun MiniPlayer(
+    state: PlayerUiState,
+    player: Player?,
+    chapters: List<Chapter>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     if (player == null || state.episodeId == null) return
-    Surface(tonalElevation = 3.dp, modifier = modifier.fillMaxWidth()) {
+    Surface(tonalElevation = 3.dp, modifier = modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column {
-            LinearProgressIndicator(
-                progress = {
-                    if (state.durationMs > 0) (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
-                },
-                modifier = Modifier.fillMaxWidth(),
+            ChapterSeekBar(
+                chapters = chapters,
+                positionMs = state.positionMs,
+                durationMs = state.durationMs,
+                barHeight = 3.dp,
+                height = 3.dp,
+                gap = 2.dp,
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,

@@ -1,5 +1,6 @@
 package ca.danielpower.podcast.ui
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -8,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import ca.danielpower.podcast.PodcastApp
+import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.Podcast
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -28,6 +31,12 @@ val AppViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
     initializer { QueueViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { PodcastsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { SearchViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
+    initializer {
+        EpisodeViewModel(
+            repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]),
+            createSavedStateHandle(),
+        )
+    }
     initializer {
         PodcastDetailViewModel(
             repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]),
@@ -107,4 +116,35 @@ class PodcastDetailViewModel(
         repository.unsubscribe(podcastId)
         onDone()
     }
+}
+
+class EpisodeViewModel(
+    private val repository: PodcastRepository,
+    savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+    val episodeId: Long = checkNotNull(savedStateHandle.get<Long>("episodeId"))
+
+    val episode: StateFlow<EpisodeWithPodcast?> = repository.observeEpisode(episodeId).stateIn(this, null)
+    val chapters: StateFlow<List<Chapter>> = repository.observeChapters(episodeId).stateIn(this, emptyList())
+
+    /** 0-based place in the queue, or null when not queued. */
+    val queueIndex: StateFlow<Int?> = repository.observeQueue()
+        .map { queue -> queue.indexOfFirst { it.episode.id == episodeId }.takeIf { it >= 0 } }
+        .stateIn(this, null)
+
+    init {
+        viewModelScope.launch {
+            try {
+                repository.loadChapters(episodeId)
+            } catch (e: Exception) {
+                Log.w("EpisodeViewModel", "Couldn't load chapters", e)
+            }
+        }
+    }
+
+    /** Makes sure the episode is queued (and downloading) before the player is asked to play it. */
+    fun prepareToPlay() = viewModelScope.launch { repository.addToQueue(episodeId) }
+    fun playNext() = viewModelScope.launch { repository.playNext(episodeId) }
+    fun addToQueue() = viewModelScope.launch { repository.addToQueue(episodeId) }
+    fun removeFromQueue() = viewModelScope.launch { repository.dismiss(episodeId) }
 }

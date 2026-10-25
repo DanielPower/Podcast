@@ -1,5 +1,6 @@
 package ca.danielpower.podcast.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -52,6 +53,7 @@ fun PodcastDetailScreen(
     podcast: Podcast?,
     episodes: List<EpisodeWithPodcast>,
     onAddToQueue: (Long) -> Unit,
+    onOpenEpisode: (Long) -> Unit,
     onUnsubscribe: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -89,7 +91,11 @@ fun PodcastDetailScreen(
                 item { Header(podcast) }
             }
             items(episodes, key = { it.episode.id }) { item ->
-                EpisodeRow(item, onAddToQueue = { onAddToQueue(item.episode.id) })
+                EpisodeRow(
+                    item,
+                    onClick = { onOpenEpisode(item.episode.id) },
+                    onAddToQueue = { onAddToQueue(item.episode.id) },
+                )
                 HorizontalDivider()
             }
         }
@@ -142,11 +148,11 @@ private fun Header(podcast: Podcast) {
 }
 
 @Composable
-private fun EpisodeRow(item: EpisodeWithPodcast, onAddToQueue: () -> Unit) {
+private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQueue: () -> Unit) {
     val episode = item.episode
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
     ) {
         Column(Modifier.weight(1f)) {
             Text(

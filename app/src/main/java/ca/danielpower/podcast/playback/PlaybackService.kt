@@ -242,7 +242,8 @@ class PlaybackService : MediaLibraryService() {
                 MediaSession.MediaItemsWithStartPosition(
                     episodes.map { it.toMediaItem() },
                     0,
-                    episodes.firstOrNull()?.episode?.positionMs ?: 0,
+                    // An explicit position (playing from a chapter) wins over the saved one.
+                    if (startPositionMs != C.TIME_UNSET) startPositionMs else episodes.firstOrNull()?.episode?.positionMs ?: 0,
                 )
             }
         }

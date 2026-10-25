@@ -46,6 +46,7 @@ class PodcastRepository(
             ),
         )
         episodes.insertAll(feed.episodes.map { it.toEntity(podcastId) })
+        saveInlineChapters(podcastId, feed.episodes)
         episodes.getForPodcast(podcastId).maxByOrNull { it.publishedAt }?.let { startDownload(it.id) }
         return podcastId
     }
@@ -80,10 +81,40 @@ class PodcastRepository(
             ),
         )
         val known = episodes.getGuids(podcast.id).toHashSet()
-        val fresh = feed.episodes.filter { it.guid !in known }.distinctBy { it.guid }
-        if (fresh.isEmpty()) return
+        val (old, fresh) = feed.episodes.distinctBy { it.guid }.partition { it.guid in known }
+        episodes.updateAllMetadata(podcast.id, old)
         val ids = episodes.insertAll(fresh.map { it.toEntity(podcast.id) })
+        saveInlineChapters(podcast.id, feed.episodes)
         ids.filter { it > 0 }.forEach { startDownload(it) }
+    }
+
+    /** Stores chapters given inline in the feed, for episodes whose chapters aren't loaded yet. */
+    private suspend fun saveInlineChapters(podcastId: Long, parsed: List<ParsedEpisode>) {
+        val withChapters = parsed.filter { it.inlineChapters.isNotEmpty() }
+        if (withChapters.isEmpty()) return
+        val byGuid = episodes.getForPodcast(podcastId).associateBy { it.guid }
+        for (item in withChapters) {
+            val episode = byGuid[item.guid] ?: continue
+            if (episode.chaptersLoaded) continue
+            episodes.replaceChapters(episode.id, item.inlineChapters.map { it.toEntity(episode.id) })
+        }
+    }
+
+    fun observeEpisode(id: Long) = episodes.observeWithPodcast(id)
+    fun observeChapters(episodeId: Long) = episodes.observeChapters(episodeId)
+
+    /** Fetches the episode's Podcasting 2.0 chapters file the first time the episode is opened. */
+    suspend fun loadChapters(episodeId: Long) {
+        val episode = episodes.get(episodeId) ?: return
+        if (episode.chaptersLoaded) return
+        val url = episode.chaptersUrl ?: return
+        val chapters = withContext(Dispatchers.IO) {
+            client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("HTTP ${response.code} for $url")
+                FeedParser.parseJsonChapters(response.body!!.string())
+            }
+        }
+        episodes.replaceChapters(episodeId, chapters.map { it.toEntity(episodeId) })
     }
 
     /**
@@ -102,6 +133,16 @@ class PodcastRepository(
     suspend fun retryDownload(episodeId: Long) = startDownload(episodeId)
 
     suspend fun moveToFront(episodeId: Long) = episodes.moveToFront(episodeId)
+
+    /** Puts the episode second in the queue, right after the one playing (downloading it if needed). */
+    suspend fun playNext(episodeId: Long) {
+        addToQueue(episodeId)
+        val queue = episodes.getQueue().map { it.episode.id }
+        if (queue.firstOrNull() == episodeId) return
+        val ids = queue.filter { it != episodeId }
+        if (ids.isEmpty()) return
+        episodes.reorderQueue(listOf(ids.first(), episodeId) + ids.drop(1))
+    }
 
     suspend fun reorderQueue(orderedIds: List<Long>) = episodes.reorderQueue(orderedIds)
 
@@ -168,6 +209,14 @@ class PodcastRepository(
         }
     }
 
+    private fun ParsedChapter.toEntity(episodeId: Long) = Chapter(
+        episodeId = episodeId,
+        startMs = startMs,
+        title = title,
+        url = url,
+        imageUrl = imageUrl,
+    )
+
     private fun ParsedEpisode.toEntity(podcastId: Long) = Episode(
         podcastId = podcastId,
         guid = guid,
@@ -177,6 +226,10 @@ class PodcastRepository(
         publishedAt = publishedAt,
         durationMs = durationMs,
         artworkUrl = artworkUrl,
+        link = link,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
+        chaptersUrl = chaptersUrl,
     )
 
     companion object {
