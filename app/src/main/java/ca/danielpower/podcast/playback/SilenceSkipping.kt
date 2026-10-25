@@ -75,6 +75,22 @@ class AdjustableSilenceSkipper(keepMs: Int) : AudioProcessor {
 
     val skippedFrames: Long get() = inner.skippedFrames
 
+    /** Silence skipped before the last flush; ExoPlayer's count starts again at each one. */
+    @Volatile private var bankedUs = 0L
+
+    /**
+     * All the silence skipped since the player was built, in media time (divide by the speed for
+     * real time). Read from the main thread, so it can be off by one buffer around a flush.
+     */
+    val skippedUs: Long get() = bankedUs + framesToUs(inner.skippedFrames)
+
+    private fun framesToUs(frames: Long): Long =
+        if (format.sampleRate > 0) frames * 1_000_000L / format.sampleRate else 0
+
+    private fun bank() {
+        bankedUs += framesToUs(inner.skippedFrames)
+    }
+
     fun setEnabled(enabled: Boolean) {
         this.enabled = enabled
         inner.setEnabled(enabled)
@@ -92,6 +108,7 @@ class AdjustableSilenceSkipper(keepMs: Int) : AudioProcessor {
     override fun isEnded(): Boolean = inner.isEnded
 
     override fun flush() {
+        bank()
         val keep = keepMs
         if (keep != builtForMs) {
             inner = build(keep)
@@ -103,6 +120,7 @@ class AdjustableSilenceSkipper(keepMs: Int) : AudioProcessor {
     }
 
     override fun reset() {
+        bank()
         inner.reset()
         // Resetting turns ExoPlayer's processor off until the sink enables it again.
         enabled = false

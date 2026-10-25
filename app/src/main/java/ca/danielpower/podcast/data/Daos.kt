@@ -32,13 +32,15 @@ interface PodcastDao {
 
     /**
      * Deletes unsubscribed podcasts not opened since [cutoff] that have nothing left in use: no
-     * episode queued, downloaded or downloading, and none started (so listening history survives).
+     * episode queued, downloaded or downloading, none started (so listening history survives), and no
+     * statistics (so the Statistics tab can still name it).
      */
     @Query(
         """DELETE FROM podcasts WHERE subscribed = 0 AND openedAt < :cutoff AND NOT EXISTS (
         SELECT 1 FROM episodes e WHERE e.podcastId = podcasts.id AND (e.queuePosition IS NOT NULL
         OR e.localPath IS NOT NULL OR e.downloadState IN ('QUEUED', 'DOWNLOADING')
-        OR e.played = 1 OR e.positionMs > 0 OR e.lastPlayedAt IS NOT NULL))""",
+        OR e.played = 1 OR e.positionMs > 0 OR e.lastPlayedAt IS NOT NULL))
+        AND NOT EXISTS (SELECT 1 FROM daily_stats s WHERE s.podcastId = podcasts.id)""",
     )
     suspend fun deleteUnused(cutoff: Long)
 
@@ -93,6 +95,10 @@ abstract class EpisodeDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertAll(episodes: List<Episode>): List<Long>
+
+    /** The files of every downloaded episode. */
+    @Query("SELECT localPath FROM episodes WHERE localPath IS NOT NULL")
+    abstract fun observeLocalPaths(): Flow<List<String>>
 
     @Query("SELECT MAX(queuePosition) FROM episodes")
     abstract suspend fun maxQueuePosition(): Long?
@@ -204,5 +210,45 @@ abstract class EpisodeDao {
         deleteChapters(episodeId)
         insertChapters(chapters)
         markChaptersLoaded(episodeId)
+    }
+}
+
+@Dao
+abstract class StatsDao {
+    /** Each podcast's totals for the days from [fromDay] to [toDay], inclusive. */
+    @Query(
+        """SELECT s.podcastId, p.title, p.artworkUrl, SUM(s.listenedMs) AS listenedMs,
+        SUM(s.silenceSavedMs) AS silenceSavedMs, SUM(s.finished) AS finished, SUM(s.downloadedBytes) AS downloadedBytes
+        FROM daily_stats s LEFT JOIN podcasts p ON p.id = s.podcastId
+        WHERE s.day BETWEEN :fromDay AND :toDay GROUP BY s.podcastId""",
+    )
+    abstract fun observeByPodcast(fromDay: Long, toDay: Long): Flow<List<PodcastStats>>
+
+    /** The first day anything was recorded, or null if nothing has been yet. */
+    @Query("SELECT MIN(day) FROM daily_stats")
+    abstract fun observeFirstDay(): Flow<Long?>
+
+    @Query("INSERT OR IGNORE INTO daily_stats (day, podcastId, listenedMs, silenceSavedMs, finished, downloadedBytes) VALUES (:day, :podcastId, 0, 0, 0, 0)")
+    abstract suspend fun ensureRow(day: Long, podcastId: Long)
+
+    @Query(
+        """UPDATE daily_stats SET listenedMs = listenedMs + :listenedMs, silenceSavedMs = silenceSavedMs + :silenceSavedMs,
+        finished = finished + :finished, downloadedBytes = downloadedBytes + :downloadedBytes
+        WHERE day = :day AND podcastId = :podcastId""",
+    )
+    abstract suspend fun addTo(day: Long, podcastId: Long, listenedMs: Long, silenceSavedMs: Long, finished: Int, downloadedBytes: Long)
+
+    /** Adds to the podcast's numbers for the day. */
+    @Transaction
+    open suspend fun add(
+        day: Long,
+        podcastId: Long,
+        listenedMs: Long = 0,
+        silenceSavedMs: Long = 0,
+        finished: Int = 0,
+        downloadedBytes: Long = 0,
+    ) {
+        ensureRow(day, podcastId)
+        addTo(day, podcastId, listenedMs, silenceSavedMs, finished, downloadedBytes)
     }
 }

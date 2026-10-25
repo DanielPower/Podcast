@@ -14,6 +14,12 @@ import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.Podcast
 import ca.danielpower.podcast.data.PodcastRepository
+import ca.danielpower.podcast.data.PodcastStats
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,6 +40,7 @@ val AppViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
     initializer { QueueViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { PodcastsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { HistoryViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
+    initializer { StatisticsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { SearchViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer {
         EpisodeViewModel(
@@ -62,6 +69,43 @@ class HistoryViewModel(private val repository: PodcastRepository) : ViewModel() 
     val history: StateFlow<List<EpisodeWithPodcast>?> = repository.observeHistory().stateIn(this, null)
 
     fun addToQueue(episodeId: Long) = viewModelScope.launch { repository.addToQueue(episodeId) }
+}
+
+/** Everything the Statistics tab shows for the chosen period. */
+data class StatsUi(
+    val period: StatsPeriod,
+    val today: LocalDate,
+    /** The first day anything was recorded, or null if nothing has been yet. */
+    val firstDay: LocalDate?,
+    val byPodcast: List<PodcastStats>,
+    /** The size of every download still on the phone, whenever it was downloaded. */
+    val onPhoneBytes: Long,
+)
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class StatisticsViewModel(private val repository: PodcastRepository) : ViewModel() {
+    private val choice = MutableStateFlow(StatsRange.MONTH to 0)
+
+    private val onPhoneBytes = repository.observeDownloadedFiles()
+        .map { paths -> withContext(Dispatchers.IO) { paths.sumOf { File(it).length() } } }
+
+    val ui: StateFlow<StatsUi?> = choice
+        .flatMapLatest { (range, offset) ->
+            val today = LocalDate.now()
+            val period = StatsPeriod.of(range, offset, today)
+            combine(
+                repository.observeStats(period.from.toEpochDay(), period.to.toEpochDay()),
+                repository.observeFirstStatsDay(),
+                onPhoneBytes,
+            ) { byPodcast, firstDay, bytes ->
+                StatsUi(period, today, firstDay?.let(LocalDate::ofEpochDay), byPodcast, bytes)
+            }
+        }
+        .stateIn(this, null)
+
+    fun setRange(range: StatsRange) = choice.update { (current, offset) -> range to if (range == current) offset else 0 }
+    fun previous() = choice.update { (range, offset) -> range to offset - 1 }
+    fun next() = choice.update { (range, offset) -> range to minOf(offset + 1, 0) }
 }
 
 class PodcastsViewModel(private val repository: PodcastRepository) : ViewModel() {

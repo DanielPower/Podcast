@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -78,6 +79,8 @@ import ca.danielpower.podcast.ui.QueueViewModel
 import ca.danielpower.podcast.ui.SearchScreen
 import ca.danielpower.podcast.ui.SearchViewModel
 import ca.danielpower.podcast.ui.SettingsScreen
+import ca.danielpower.podcast.ui.StatisticsScreen
+import ca.danielpower.podcast.ui.StatisticsViewModel
 import ca.danielpower.podcast.ui.isDark
 import ca.danielpower.podcast.work.Refresh
 import kotlinx.coroutines.flow.flowOf
@@ -134,6 +137,7 @@ class MainActivity : ComponentActivity() {
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     Queue("queue", "Queue", Icons.AutoMirrored.Filled.QueueMusic),
     Podcasts("podcasts", "Podcasts", Icons.Default.GridView),
+    Statistics("statistics", "Statistics", Icons.Default.BarChart),
 }
 
 @Composable
@@ -225,6 +229,13 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         onRefresh = { Refresh.now(context) },
                         onOpenSettings = openSettings,
                     )
+                }
+            }
+            composable(Tab.Statistics.route) {
+                TabPage(chromeHeight) {
+                    val vm: StatisticsViewModel = viewModel(factory = AppViewModelFactory)
+                    val ui by vm.ui.collectAsStateWithLifecycle()
+                    StatisticsScreen(ui = ui, onRange = vm::setRange, onPrevious = vm::previous, onNext = vm::next)
                 }
             }
             composable(SETTINGS_ROUTE) {

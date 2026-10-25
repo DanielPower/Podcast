@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.time.LocalDate
 
 class PodcastRepository(
     private val context: Context,
@@ -18,6 +19,7 @@ class PodcastRepository(
 ) {
     private val podcasts = db.podcastDao()
     private val episodes = db.episodeDao()
+    private val stats = db.statsDao()
 
     val directory = DirectorySearch(client)
 
@@ -202,6 +204,7 @@ class PodcastRepository(
     /** Called when an episode plays to the end. */
     suspend fun markFinished(episodeId: Long) {
         episodes.markPlayed(episodeId)
+        episodes.get(episodeId)?.let { stats.add(today(), it.podcastId, finished = 1) }
         episodes.removeFromQueue(episodeId, System.currentTimeMillis())
     }
 
@@ -222,6 +225,21 @@ class PodcastRepository(
     /** Called whenever an episode starts playing, so it moves to the top of the history. */
     suspend fun markPlaying(episodeId: Long) = episodes.setLastPlayed(episodeId, System.currentTimeMillis())
 
+    // Statistics.
+
+    fun observeStats(fromDay: Long, toDay: Long) = stats.observeByPodcast(fromDay, toDay)
+    fun observeFirstStatsDay() = stats.observeFirstDay()
+    fun observeDownloadedFiles() = episodes.observeLocalPaths()
+
+    /** Called by the player every few seconds while it plays, and when it stops. */
+    suspend fun recordListening(episodeId: Long, listenedMs: Long, silenceSavedMs: Long) {
+        if (listenedMs <= 0 && silenceSavedMs <= 0) return
+        val episode = episodes.get(episodeId) ?: return
+        stats.add(today(), episode.podcastId, listenedMs = listenedMs, silenceSavedMs = silenceSavedMs)
+    }
+
+    private fun today() = LocalDate.now().toEpochDay()
+
     // Download bookkeeping, used by DownloadWorker.
 
     fun downloadFile(episodeId: Long): File {
@@ -240,6 +258,12 @@ class PodcastRepository(
 
     suspend fun onDownloadComplete(episodeId: Long, file: File) =
         episodes.setDownload(episodeId, DownloadState.DOWNLOADED, file.absolutePath)
+
+    /** Counts a finished download towards the day's statistics. */
+    suspend fun recordDownload(episodeId: Long, bytes: Long) {
+        val episode = episodes.get(episodeId) ?: return
+        stats.add(today(), episode.podcastId, downloadedBytes = bytes)
+    }
 
     /** Starts downloading an episode and gives it its place at the end of the queue. */
     private suspend fun startDownload(episodeId: Long) {
