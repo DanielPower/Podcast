@@ -2,6 +2,7 @@ package ca.danielpower.podcast.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Bundle
 import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -14,11 +15,15 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
+import androidx.media3.session.SessionResult
 import ca.danielpower.podcast.MainActivity
+import ca.danielpower.podcast.R
 import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.repository
@@ -44,6 +49,10 @@ import java.io.File
  * single source of truth for what comes next.
  *
  * It is a library service so Android Auto can browse the queue.
+ *
+ * Next and previous (earbuds, steering wheel buttons, the notification, Android Auto) skip forward
+ * and back within the episode. Leaving an episode before it ends is a deliberate act, so it has its
+ * own "Skip episode" button instead.
  */
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
@@ -108,8 +117,14 @@ class PlaybackService : MediaLibraryService() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val skipEpisode = CommandButton.Builder()
+            .setDisplayName("Skip episode")
+            .setIconResId(R.drawable.ic_skip_episode)
+            .setSessionCommand(SKIP_EPISODE)
+            .build()
         val session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(openApp)
+            .setCustomLayout(ImmutableList.of(skipEpisode))
             .build()
         this.session = session
 
@@ -198,7 +213,7 @@ class PlaybackService : MediaLibraryService() {
         scope.launch { repository.markFinished(id) }
     }
 
-    /** Skip to next: takes the current episode out of the queue, so the next one plays. */
+    /** Skip episode: takes the current episode out of the queue, so the next one plays. */
     private fun skipCurrent() {
         val id = currentEpisodeId ?: return
         saveCurrentPosition()
@@ -240,20 +255,21 @@ class PlaybackService : MediaLibraryService() {
         writes.launch { repository.saveDuration(id, duration) }
     }
 
-    /** Advertises "next" even though the player only holds one item, and maps it to a skip. */
+    /**
+     * Turns next and previous into skip forward and skip back, and advertises them even though the
+     * player only ever holds one item.
+     */
     private inner class QueuePlayer(player: Player) : ForwardingPlayer(player) {
         override fun getAvailableCommands(): Player.Commands =
-            super.getAvailableCommands().buildUpon()
-                .add(Player.COMMAND_SEEK_TO_NEXT)
-                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                .build()
+            super.getAvailableCommands().buildUpon().addAll(*SKIP_COMMANDS).build()
 
         override fun isCommandAvailable(command: Int): Boolean =
-            command == Player.COMMAND_SEEK_TO_NEXT || command == Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM ||
-                super.isCommandAvailable(command)
+            command in SKIP_COMMANDS || super.isCommandAvailable(command)
 
-        override fun seekToNext() = skipCurrent()
-        override fun seekToNextMediaItem() = skipCurrent()
+        override fun seekToNext() = seekForward()
+        override fun seekToNextMediaItem() = seekForward()
+        override fun seekToPrevious() = seekBack()
+        override fun seekToPreviousMediaItem() = seekBack()
 
         // Skip lengths come from Settings, so they can change while the player is running.
         override fun getSeekBackIncrement(): Long = settings.current.skipBackSeconds * 1000L
@@ -269,6 +285,31 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
+
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+                .add(SKIP_EPISODE)
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(commands)
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == SKIP_EPISODE.customAction) {
+                skipCurrent()
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            return super.onCustomCommand(session, controller, customCommand, args)
+        }
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
@@ -409,5 +450,12 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val ROOT_ID = "root"
         private const val QUEUE_ID = "queue"
+        private val SKIP_EPISODE = SessionCommand("ca.danielpower.podcast.SKIP_EPISODE", Bundle.EMPTY)
+        private val SKIP_COMMANDS = intArrayOf(
+            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_PREVIOUS,
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+        )
     }
 }

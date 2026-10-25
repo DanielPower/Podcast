@@ -234,6 +234,13 @@ private fun TopBar(
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f),
         )
+        // Leaving an episode before it ends is deliberate, so it's a labelled button up here rather
+        // than next to the player controls (where next and previous skip within the episode).
+        if (isCurrent) {
+            TextButton(onClick = onRemoveFromQueue) {
+                Text("Skip episode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
         val link = item?.episode?.link
         if (link != null) {
             IconButton(onClick = { uriHandler.openUri(link) }) {
