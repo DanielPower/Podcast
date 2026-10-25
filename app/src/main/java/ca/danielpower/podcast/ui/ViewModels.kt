@@ -30,6 +30,7 @@ val AppViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
     fun repo(app: Any?) = (app as PodcastApp).repository
     initializer { QueueViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { PodcastsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
+    initializer { HistoryViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { SearchViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer {
         EpisodeViewModel(
@@ -52,6 +53,12 @@ class QueueViewModel(private val repository: PodcastRepository) : ViewModel() {
     fun dismiss(episodeId: Long) = viewModelScope.launch { repository.dismiss(episodeId) }
     fun moveToFront(episodeId: Long) = viewModelScope.launch { repository.moveToFront(episodeId) }
     fun retryDownload(episodeId: Long) = viewModelScope.launch { repository.retryDownload(episodeId) }
+}
+
+class HistoryViewModel(private val repository: PodcastRepository) : ViewModel() {
+    val history: StateFlow<List<EpisodeWithPodcast>?> = repository.observeHistory().stateIn(this, null)
+
+    fun addToQueue(episodeId: Long) = viewModelScope.launch { repository.addToQueue(episodeId) }
 }
 
 class PodcastsViewModel(private val repository: PodcastRepository) : ViewModel() {

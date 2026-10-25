@@ -51,6 +51,10 @@ abstract class EpisodeDao {
     @Query("$EPISODE_WITH_PODCAST WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
     abstract suspend fun getQueue(): List<EpisodeWithPodcast>
 
+    /** Every episode that has been played, most recently played first. */
+    @Query("$EPISODE_WITH_PODCAST WHERE e.lastPlayedAt IS NOT NULL ORDER BY e.lastPlayedAt DESC")
+    abstract fun observeHistory(): Flow<List<EpisodeWithPodcast>>
+
     @Query("$EPISODE_WITH_PODCAST WHERE e.podcastId = :podcastId ORDER BY e.publishedAt DESC")
     abstract fun observeForPodcast(podcastId: Long): Flow<List<EpisodeWithPodcast>>
 
@@ -99,6 +103,9 @@ abstract class EpisodeDao {
 
     @Query("UPDATE episodes SET positionMs = :positionMs WHERE id = :id")
     abstract suspend fun setPosition(id: Long, positionMs: Long)
+
+    @Query("UPDATE episodes SET lastPlayedAt = :now WHERE id = :id")
+    abstract suspend fun setLastPlayed(id: Long, now: Long)
 
     @Query("UPDATE episodes SET played = 1, positionMs = 0 WHERE id = :id")
     abstract suspend fun markPlayed(id: Long)

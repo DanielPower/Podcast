@@ -74,7 +74,11 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) saveCurrentPosition()
+                if (isPlaying) {
+                    currentEpisodeId?.let { id -> scope.launch { repository.markPlaying(id) } }
+                } else {
+                    saveCurrentPosition()
+                }
             }
         })
 

@@ -26,6 +26,7 @@ class PodcastRepository(
     fun observeSubscribedFeedUrls() = podcasts.observeFeedUrls()
     fun observeQueue() = episodes.observeQueue()
     fun observeEpisodes(podcastId: Long) = episodes.observeForPodcast(podcastId)
+    fun observeHistory() = episodes.observeHistory()
 
     suspend fun getQueue() = episodes.getQueue()
     suspend fun getEpisode(id: Long) = episodes.getWithPodcast(id)
@@ -176,6 +177,9 @@ class PodcastRepository(
     }
 
     suspend fun savePosition(episodeId: Long, positionMs: Long) = episodes.setPosition(episodeId, positionMs)
+
+    /** Called whenever an episode starts playing, so it moves to the top of the history. */
+    suspend fun markPlaying(episodeId: Long) = episodes.setLastPlayed(episodeId, System.currentTimeMillis())
 
     // Download bookkeeping, used by DownloadWorker.
 
