@@ -64,6 +64,8 @@ data class Episode(
     val chaptersUrl: String? = null,
     /** Whether chapters have been loaded into the chapters table (from the feed or [chaptersUrl]). */
     @ColumnInfo(defaultValue = "0") val chaptersLoaded: Boolean = false,
+    /** When the episode last started playing, or null if it never has. Orders the history. */
+    val lastPlayedAt: Long? = null,
 )
 
 @Entity(
