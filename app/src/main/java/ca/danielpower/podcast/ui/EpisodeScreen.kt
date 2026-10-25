@@ -69,13 +69,8 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -370,17 +365,7 @@ private fun Notes(description: String?) {
         EmptyMessage("This episode has no show notes.")
         return
     }
-    val linkColor = MaterialTheme.colorScheme.secondary
-    val text = remember(description, linkColor) {
-        if ('<' in description) {
-            AnnotatedString.fromHtml(
-                description,
-                linkStyles = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)),
-            )
-        } else {
-            AnnotatedString(description)
-        }
-    }
+    val text = rememberFeedText(description)
     Text(
         text,
         style = MaterialTheme.typography.bodyMedium,

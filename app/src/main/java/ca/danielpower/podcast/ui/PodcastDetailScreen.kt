@@ -169,9 +169,9 @@ private fun Header(
             }
         }
     }
-    description?.let {
+    description?.takeIf { it.isNotBlank() }?.let {
         Text(
-            it,
+            rememberFeedText(it),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 4,
