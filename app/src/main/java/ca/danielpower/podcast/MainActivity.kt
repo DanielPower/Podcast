@@ -211,7 +211,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                     PodcastsScreen(
                         podcasts = podcasts,
                         onOpen = { navController.navigate("podcast/$it") },
-                        onSearch = { navController.navigate("search") },
+                        onSearch = { navController.navigate(SEARCH_ROUTE) },
                         onRefresh = { Refresh.now(context) },
                         onOpenSettings = openSettings,
                     )
@@ -232,7 +232,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                     )
                 }
             }
-            composable("search") {
+            composable(SEARCH_ROUTE) {
                 TabPage(chromeHeight) {
                     val vm: SearchViewModel = viewModel(factory = AppViewModelFactory)
                     val state by vm.state.collectAsStateWithLifecycle()
@@ -242,6 +242,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         subscribedFeedUrls = subscribed,
                         onQueryChange = vm::setQuery,
                         onSearch = vm::search,
+                        onClear = vm::clearSearch,
                         onSubscribe = vm::subscribe,
                         onBack = { navController.popBackStack() },
                     )
@@ -313,6 +314,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
 
 private const val EPISODE_ROUTE = "episode/{episodeId}"
 private const val SETTINGS_ROUTE = "settings"
+private const val SEARCH_ROUTE = "search"
 private const val FADE_MS = 200
 private const val CARD_MS = 300
 
@@ -351,12 +353,17 @@ private fun BottomBar(navController: NavHostController) {
     PaperNavBar {
         for (tab in Tab.entries) {
             val selected = destination?.hierarchy?.any { it.route == tab.route } == true ||
-                (tab == Tab.Podcasts && destination?.route?.let { it == "search" || it.startsWith("podcast/") } == true)
+                (tab == Tab.Podcasts && destination?.route?.let { it == SEARCH_ROUTE || it.startsWith("podcast/") } == true)
             PaperNavItem(
                 label = tab.label,
                 icon = tab.icon,
                 selected = selected,
                 onClick = {
+                    // Leaving the Podcasts tab drops a search in progress, so it isn't restored
+                    // (with the keyboard popping up) when the tab is opened again.
+                    if (runCatching { navController.getBackStackEntry(SEARCH_ROUTE) }.isSuccess) {
+                        navController.popBackStack(SEARCH_ROUTE, inclusive = true)
+                    }
                     navController.navigate(tab.route) {
                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                         launchSingleTop = true

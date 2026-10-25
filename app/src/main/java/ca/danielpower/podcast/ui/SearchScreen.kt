@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,7 +29,11 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -47,12 +52,20 @@ fun SearchScreen(
     subscribedFeedUrls: List<String>,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
+    onClear: () -> Unit,
     onSubscribe: (DirectoryResult) -> Unit,
     onBack: () -> Unit,
 ) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    // Focus (and so the keyboard) only on first open, not when coming back from a podcast's page.
+    var focusedOnce by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!focusedOnce) {
+            focusedOnce = true
+            focus.requestFocus()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -74,11 +87,21 @@ fun SearchScreen(
                             onSearch()
                         }),
                         trailingIcon = {
-                            IconButton(onClick = {
-                                keyboard?.hide()
-                                onSearch()
-                            }) {
-                                Icon(Icons.Default.Search, contentDescription = "Search")
+                            Row {
+                                if (state.query.isNotEmpty()) {
+                                    IconButton(onClick = {
+                                        onClear()
+                                        focus.requestFocus()
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                    }
+                                }
+                                IconButton(onClick = {
+                                    keyboard?.hide()
+                                    onSearch()
+                                }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search")
+                                }
                             }
                         },
                         colors = TextFieldDefaults.colors(
