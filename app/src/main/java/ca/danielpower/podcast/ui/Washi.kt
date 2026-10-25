@@ -240,8 +240,8 @@ fun SkipIcon(seconds: Int, forward: Boolean, modifier: Modifier = Modifier, size
 
 /** The bottom tab bar: a hairline above, the selected tab in the accent. */
 @Composable
-fun PaperNavBar(content: @Composable RowScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).navigationBarsPadding()) {
+fun PaperNavBar(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).navigationBarsPadding()) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Row(Modifier.fillMaxWidth().height(64.dp), content = content)
     }
