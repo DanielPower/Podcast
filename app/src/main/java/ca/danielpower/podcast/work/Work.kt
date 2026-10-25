@@ -93,7 +93,27 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
             withContext(Dispatchers.IO) {
                 client.newCall(Request.Builder().url(episode.audioUrl).build()).execute().use { response ->
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-                    partial.outputStream().use { out -> response.body!!.byteStream().copyTo(out) }
+                    val body = response.body!!
+                    val total = body.contentLength().takeIf { it > 0 }
+                    var downloaded = 0L
+                    var lastReport = 0L
+                    repository.setDownloadProgress(episodeId, 0, total)
+                    partial.outputStream().use { out ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (!isStopped) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                out.write(buffer, 0, read)
+                                downloaded += read
+                                val now = System.currentTimeMillis()
+                                if (now - lastReport >= PROGRESS_INTERVAL_MS) {
+                                    lastReport = now
+                                    repository.setDownloadProgress(episodeId, downloaded, total)
+                                }
+                            }
+                        }
+                    }
                 }
                 if (isStopped) throw IOException("Download cancelled")
                 if (!partial.renameTo(target)) throw IOException("Could not move download into place")
@@ -116,6 +136,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
     }
 
     companion object {
+        private const val PROGRESS_INTERVAL_MS = 500L
         private val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(2, TimeUnit.MINUTES)

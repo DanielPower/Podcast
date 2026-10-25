@@ -42,6 +42,7 @@ class QueueViewModel(private val repository: PodcastRepository) : ViewModel() {
     fun reorder(orderedIds: List<Long>) = viewModelScope.launch { repository.reorderQueue(orderedIds) }
     fun dismiss(episodeId: Long) = viewModelScope.launch { repository.dismiss(episodeId) }
     fun moveToFront(episodeId: Long) = viewModelScope.launch { repository.moveToFront(episodeId) }
+    fun retryDownload(episodeId: Long) = viewModelScope.launch { repository.retryDownload(episodeId) }
 }
 
 class PodcastsViewModel(private val repository: PodcastRepository) : ViewModel() {

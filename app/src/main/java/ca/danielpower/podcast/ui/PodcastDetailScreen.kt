@@ -167,12 +167,13 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onAddToQueue: () -> Unit) {
             )
         }
         when {
-            episode.queuePosition != null -> IconButton(onClick = {}, enabled = false) {
-                Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = "In queue")
-            }
             episode.downloadState == DownloadState.QUEUED || episode.downloadState == DownloadState.DOWNLOADING ->
                 IconButton(onClick = {}, enabled = false) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            episode.queuePosition != null && episode.downloadState != DownloadState.FAILED ->
+                IconButton(onClick = {}, enabled = false) {
+                    Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = "In queue")
                 }
             else -> IconButton(onClick = onAddToQueue) {
                 if (episode.downloadState == DownloadState.FAILED) {

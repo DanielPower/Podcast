@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -46,6 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ca.danielpower.podcast.data.DownloadState
+import ca.danielpower.podcast.data.Episode
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import coil.compose.AsyncImage
 import sh.calvin.reorderable.ReorderableItem
@@ -59,6 +62,7 @@ fun QueueScreen(
     onPlay: (Long) -> Unit,
     onReorder: (List<Long>) -> Unit,
     onDismiss: (Long) -> Unit,
+    onRetryDownload: (Long) -> Unit,
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("Queue") }) }) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -67,7 +71,7 @@ fun QueueScreen(
                 queue.isEmpty() -> EmptyMessage(
                     "Your queue is empty.\nNew episodes from your podcasts are added here once they've downloaded.",
                 )
-                else -> QueueList(queue, playingEpisodeId, onPlay, onReorder, onDismiss)
+                else -> QueueList(queue, playingEpisodeId, onPlay, onReorder, onDismiss, onRetryDownload)
             }
         }
     }
@@ -80,6 +84,7 @@ private fun QueueList(
     onPlay: (Long) -> Unit,
     onReorder: (List<Long>) -> Unit,
     onDismiss: (Long) -> Unit,
+    onRetryDownload: (Long) -> Unit,
 ) {
     // A local copy that follows the drag; written back to the database when the drag ends.
     var items by remember { mutableStateOf(queue) }
@@ -104,7 +109,12 @@ private fun QueueList(
                         QueueRow(
                             item = item,
                             playing = item.episode.id == playingEpisodeId,
-                            onClick = { onPlay(item.episode.id) },
+                            onClick = {
+                                when {
+                                    item.isPlayable -> onPlay(item.episode.id)
+                                    item.episode.downloadState == DownloadState.FAILED -> onRetryDownload(item.episode.id)
+                                }
+                            },
                             handle = {
                                 IconButton(
                                     onClick = {},
@@ -181,6 +191,7 @@ private fun QueueRow(
             model = item.artworkUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            alpha = if (item.isPlayable) 1f else 0.5f,
             modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
         )
         Spacer(Modifier.width(12.dp))
@@ -210,14 +221,48 @@ private fun QueueRow(
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
-                    episodeSubtitle(item),
+                    if (item.isPlayable) episodeSubtitle(item) else downloadStatus(item.episode),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (item.episode.downloadState == DownloadState.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
+            }
+            if (!item.isPlayable && item.episode.downloadState != DownloadState.FAILED) {
+                DownloadProgress(item.episode)
             }
         }
         handle()
     }
+}
+
+@Composable
+private fun DownloadProgress(episode: Episode) {
+    val total = episode.downloadTotalBytes
+    val modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 8.dp)
+    if (episode.downloadState == DownloadState.DOWNLOADING && total != null && total > 0) {
+        LinearProgressIndicator(
+            progress = { (episode.downloadedBytes.toFloat() / total).coerceIn(0f, 1f) },
+            modifier = modifier,
+        )
+    } else {
+        LinearProgressIndicator(modifier = modifier)
+    }
+}
+
+private fun downloadStatus(episode: Episode): String = when (episode.downloadState) {
+    DownloadState.DOWNLOADING -> {
+        val total = episode.downloadTotalBytes
+        if (total != null && total > 0) {
+            "Downloading ${episode.downloadedBytes * 100 / total}%"
+        } else {
+            "Downloading ${episode.downloadedBytes / (1024 * 1024)} MB"
+        }
+    }
+    DownloadState.FAILED -> "Download failed. Tap to retry."
+    else -> "Waiting to download"
 }
 
 private fun episodeSubtitle(item: EpisodeWithPodcast): String {

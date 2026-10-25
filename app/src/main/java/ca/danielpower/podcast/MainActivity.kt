@@ -126,6 +126,7 @@ private fun App(connection: PlayerConnection?) {
                     },
                     onReorder = vm::reorder,
                     onDismiss = vm::dismiss,
+                    onRetryDownload = vm::retryDownload,
                 )
             }
             composable(Tab.Podcasts.route) {

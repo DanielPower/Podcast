@@ -48,6 +48,8 @@ data class Episode(
     val artworkUrl: String?,
     val downloadState: DownloadState = DownloadState.NONE,
     val localPath: String? = null,
+    val downloadedBytes: Long = 0,
+    val downloadTotalBytes: Long? = null,
     val positionMs: Long = 0,
     val played: Boolean = false,
     /** Position in the queue, or null when the episode is not queued. Lower plays first. */
@@ -62,6 +64,7 @@ data class EpisodeWithPodcast(
     @Embedded(prefix = "podcast_") val podcast: PodcastSummary,
 ) {
     val artworkUrl: String? get() = episode.artworkUrl ?: podcast.artworkUrl
+    val isPlayable: Boolean get() = episode.downloadState == DownloadState.DOWNLOADED
 }
 
 data class PodcastSummary(

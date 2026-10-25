@@ -86,23 +86,36 @@ class PodcastRepository(
         ids.filter { it > 0 }.forEach { startDownload(it) }
     }
 
-    /** Queues an episode, downloading it first if needed. It joins the queue once downloaded. */
+    /**
+     * Appends an episode to the queue. If it isn't downloaded yet it waits in the queue as a
+     * placeholder, and the player skips over it until the download finishes.
+     */
     suspend fun addToQueue(episodeId: Long) {
         val episode = episodes.get(episodeId) ?: return
-        if (episode.downloadState == DownloadState.DOWNLOADED) {
-            episodes.appendToQueue(episodeId)
-        } else if (episode.downloadState != DownloadState.DOWNLOADING) {
+        episodes.appendToQueue(episodeId)
+        if (episode.downloadState != DownloadState.DOWNLOADED && episode.downloadState != DownloadState.DOWNLOADING) {
             startDownload(episodeId)
         }
     }
+
+    /** Restarts a failed download, keeping the episode's place in the queue. */
+    suspend fun retryDownload(episodeId: Long) = startDownload(episodeId)
 
     suspend fun moveToFront(episodeId: Long) = episodes.moveToFront(episodeId)
 
     suspend fun reorderQueue(orderedIds: List<Long>) = episodes.reorderQueue(orderedIds)
 
-    /** Removes an episode from the queue without marking it played. Its file is kept for a while. */
+    /**
+     * Removes an episode from the queue without marking it played. A finished download is kept
+     * for a while; one still in progress is cancelled.
+     */
     suspend fun dismiss(episodeId: Long) {
         episodes.removeFromQueue(episodeId, System.currentTimeMillis())
+        val episode = episodes.get(episodeId) ?: return
+        if (episode.downloadState != DownloadState.DOWNLOADED) {
+            Downloads.cancel(context, episodeId)
+            episodes.setDownload(episodeId, DownloadState.NONE, null)
+        }
     }
 
     /** Called when an episode plays to the end. */
@@ -135,13 +148,16 @@ class PodcastRepository(
     suspend fun setDownloadState(episodeId: Long, state: DownloadState, localPath: String? = null) =
         episodes.setDownload(episodeId, state, localPath)
 
-    suspend fun onDownloadComplete(episodeId: Long, file: File) {
-        episodes.setDownload(episodeId, DownloadState.DOWNLOADED, file.absolutePath)
-        episodes.appendToQueue(episodeId)
-    }
+    suspend fun setDownloadProgress(episodeId: Long, downloaded: Long, total: Long?) =
+        episodes.setDownloadProgress(episodeId, downloaded, total)
 
+    suspend fun onDownloadComplete(episodeId: Long, file: File) =
+        episodes.setDownload(episodeId, DownloadState.DOWNLOADED, file.absolutePath)
+
+    /** Starts downloading an episode and gives it its place at the end of the queue. */
     private suspend fun startDownload(episodeId: Long) {
         episodes.setDownload(episodeId, DownloadState.QUEUED, null)
+        episodes.appendToQueue(episodeId)
         Downloads.enqueue(context, episodeId)
     }
 

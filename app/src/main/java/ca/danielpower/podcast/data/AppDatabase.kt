@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 
-@Database(entities = [Podcast::class, Episode::class], version = 1)
+@Database(entities = [Podcast::class, Episode::class], version = 2)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
@@ -15,7 +15,10 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         fun create(context: Context): AppDatabase =
-            Room.databaseBuilder(context, AppDatabase::class.java, "podcast.db").build()
+            Room.databaseBuilder(context, AppDatabase::class.java, "podcast.db")
+                // Version 1 shipped only in pre-release test builds, with more than one schema.
+                .fallbackToDestructiveMigrationFrom(1)
+                .build()
     }
 }
 
