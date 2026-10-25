@@ -1,6 +1,7 @@
 package ca.danielpower.podcast.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -52,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -66,6 +70,7 @@ import androidx.media3.common.Player
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
+import ca.danielpower.podcast.data.formatSpeed
 import ca.danielpower.podcast.playback.PlayerUiState
 import java.io.File
 import kotlinx.coroutines.launch
@@ -110,6 +115,9 @@ fun EpisodeScreen(
     playerState: PlayerUiState,
     skipBackSeconds: Int,
     skipForwardSeconds: Int,
+    speed: Float,
+    speedPresets: List<Float>,
+    onSpeed: (Float) -> Unit,
     onBack: () -> Unit,
     onPlay: (startMs: Long?) -> Unit,
     onPlayNext: () -> Unit,
@@ -169,6 +177,9 @@ fun EpisodeScreen(
             player = player,
             skipBackSeconds = skipBackSeconds,
             skipForwardSeconds = skipForwardSeconds,
+            speed = speed,
+            speedPresets = speedPresets,
+            onSpeed = onSpeed,
             onPlay = onPlay,
             onPlayNext = onPlayNext,
         )
@@ -421,6 +432,9 @@ private fun BottomPane(
     player: Player?,
     skipBackSeconds: Int,
     skipForwardSeconds: Int,
+    speed: Float,
+    speedPresets: List<Float>,
+    onSpeed: (Float) -> Unit,
     onPlay: (Long?) -> Unit,
     onPlayNext: () -> Unit,
 ) {
@@ -433,7 +447,7 @@ private fun BottomPane(
     // Every row has a fixed height, so the pane is the same size in both states.
     Column(Modifier.fillMaxWidth().background(MaterialTheme.podcastColors.raised)) {
         HorizontalDivider(color = colors.outlineVariant)
-        Column(Modifier.navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)) {
+        Column(Modifier.navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 8.dp)) {
             Row(Modifier.fillMaxWidth().height(18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = if (isCurrent) {
@@ -463,16 +477,24 @@ private fun BottomPane(
                 activeColor = if (isCurrent) colors.primary else colors.onSurface,
                 onSeek = if (isCurrent) ({ ms: Long -> player?.seekTo(ms) }) else null,
             )
-            Row(Modifier.fillMaxWidth().height(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatDuration(positionMs), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    formatDuration(positionMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                SpeedPresets(speed, speedPresets, onSpeed)
                 Text(
                     if (durationMs > 0) "−${formatDuration((durationMs - positionMs).coerceAtLeast(0))}" else "",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.onSurfaceVariant,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f),
                 )
             }
             Row(
-                Modifier.fillMaxWidth().padding(top = 4.dp).height(60.dp),
+                Modifier.fillMaxWidth().height(60.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = if (isCurrent) Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(10.dp),
             ) {
@@ -519,6 +541,39 @@ private fun BottomPane(
                         Text("Play next")
                     }
                 }
+            }
+        }
+    }
+}
+
+/** The speed presets as a row of small buttons; the one in use is in the accent colour. */
+@Composable
+private fun SpeedPresets(speed: Float, presets: List<Float>, onSpeed: (Float) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (preset in presets) {
+            val selected = preset == speed
+            Box(
+                Modifier
+                    .height(26.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .then(if (selected) Modifier.border(1.dp, colors.primary, RoundedCornerShape(4.dp)) else Modifier)
+                    .selectable(selected = selected, role = Role.RadioButton, onClick = { onSpeed(preset) })
+                    .padding(horizontal = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    formatSpeed(preset),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (selected) colors.primary else colors.onSurfaceVariant,
+                )
+            }
+        }
+        // A speed set before the presets changed still shows, so it's clear what's playing.
+        if (presets.isNotEmpty() && speed !in presets) {
+            Box(Modifier.height(26.dp).padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
+                Text(formatSpeed(speed), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = colors.primary)
             }
         }
     }

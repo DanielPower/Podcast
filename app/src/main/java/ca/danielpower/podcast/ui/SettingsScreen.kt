@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,9 +46,10 @@ import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.Scheme
 import ca.danielpower.podcast.data.ThemeMode
+import ca.danielpower.podcast.data.formatSpeed
 
 /** Which list of choices is open in a dialog, if any. */
-private enum class Picker { SKIP_BACK, SKIP_FORWARD, KEEP }
+private enum class Picker { SKIP_BACK, SKIP_FORWARD, SPEED_PRESETS, SILENCE_KEEP, KEEP }
 
 @Composable
 fun SettingsScreen(
@@ -95,6 +98,23 @@ fun SettingsScreen(
             SettingsSection("Playback")
             ChoiceRow("Skip back", "${settings.skipBackSeconds} s") { picker = Picker.SKIP_BACK }
             ChoiceRow("Skip forward", "${settings.skipForwardSeconds} s") { picker = Picker.SKIP_FORWARD }
+            ChoiceRow(
+                "Speed presets",
+                settings.speedPresets.joinToString("  ") { formatSpeed(it) },
+                hint = "Shown on Now Playing",
+            ) { picker = Picker.SPEED_PRESETS }
+            SettingRow(
+                "Skip silence",
+                hint = "Shorten long pauses",
+                onClick = { onChange { it.copy(skipSilence = !it.skipSilence) } },
+            ) {
+                PaperSwitch(settings.skipSilence, { on -> onChange { it.copy(skipSilence = on) } })
+            }
+            ChoiceRow(
+                "Longest pause to keep",
+                "${settings.silenceKeepMs} ms",
+                hint = "Shorter pauses are left alone",
+            ) { picker = Picker.SILENCE_KEEP }
 
             SettingsSection("Downloads")
             SettingRow(
@@ -132,6 +152,19 @@ fun SettingsScreen(
             selected = settings.skipForwardSeconds,
             label = { "$it seconds" },
             onPick = { s -> onChange { it.copy(skipForwardSeconds = s) } },
+            onDismiss = { picker = null },
+        )
+        Picker.SPEED_PRESETS -> SpeedPresetsDialog(
+            selected = settings.speedPresets,
+            onDone = { presets -> onChange { it.copy(speedPresets = presets) } },
+            onDismiss = { picker = null },
+        )
+        Picker.SILENCE_KEEP -> ChoiceDialog(
+            title = "Longest pause to keep",
+            choices = AppSettings.SILENCE_KEEP_CHOICES,
+            selected = settings.silenceKeepMs,
+            label = { "$it ms" },
+            onPick = { ms -> onChange { it.copy(silenceKeepMs = ms) } },
             onDismiss = { picker = null },
         )
         Picker.KEEP -> ChoiceDialog(
@@ -240,6 +273,55 @@ private fun SchemeCard(scheme: Scheme, selected: Boolean, dark: Boolean, onClick
             }
         }
     }
+}
+
+/** Pick up to [AppSettings.MAX_SPEED_PRESETS] speeds; they're saved when Done is pressed. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SpeedPresetsDialog(selected: List<Float>, onDone: (List<Float>) -> Unit, onDismiss: () -> Unit) {
+    var picked by remember { mutableStateOf(selected.toSet()) }
+    val full = picked.size >= AppSettings.MAX_SPEED_PRESETS
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Speed presets") },
+        text = {
+            Column {
+                Text(
+                    "Choose up to ${AppSettings.MAX_SPEED_PRESETS}.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (speed in AppSettings.SPEED_CHOICES) {
+                        val on = speed in picked
+                        PaperChip(
+                            selected = on,
+                            enabled = on || !full,
+                            onClick = {
+                                if (on) picked = picked - speed else if (!full) picked = picked + speed
+                            },
+                            label = formatSpeed(speed),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onDone(picked.sorted())
+                    onDismiss()
+                },
+                enabled = picked.isNotEmpty(),
+            ) { Text("Done", color = MaterialTheme.colorScheme.onSurface) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurface) }
+        },
+        shape = RoundedCornerShape(8.dp),
+        containerColor = MaterialTheme.podcastColors.raised,
+    )
 }
 
 @Composable

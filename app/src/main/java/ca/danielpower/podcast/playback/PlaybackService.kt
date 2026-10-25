@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -17,6 +18,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionError
 import ca.danielpower.podcast.MainActivity
+import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.repository
 import ca.danielpower.podcast.settings
@@ -44,6 +46,7 @@ import java.io.File
 class PlaybackService : MediaLibraryService() {
 
     private lateinit var exoPlayer: ExoPlayer
+    private lateinit var silenceSkipper: AdjustableSilenceSkipper
     private lateinit var player: Player
     private var session: MediaLibrarySession? = null
     private val scope = MainScope()
@@ -53,7 +56,8 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        exoPlayer = ExoPlayer.Builder(this)
+        silenceSkipper = AdjustableSilenceSkipper(settings.current.silenceKeepMs)
+        exoPlayer = ExoPlayer.Builder(this, PodcastRenderersFactory(this, silenceSkipper))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -95,6 +99,10 @@ class PlaybackService : MediaLibraryService() {
                 }
         }
         scope.launch {
+            // Speed and skip silence live in Settings; Now Playing changes them there.
+            settings.settings.collect { applyAudioSettings(it) }
+        }
+        scope.launch {
             while (true) {
                 delay(5_000)
                 if (player.isPlaying) saveCurrentPosition()
@@ -115,6 +123,18 @@ class PlaybackService : MediaLibraryService() {
         session = null
         exoPlayer.release()
         super.onDestroy()
+    }
+
+    private fun applyAudioSettings(s: AppSettings) {
+        if (exoPlayer.playbackParameters.speed != s.playbackSpeed) {
+            exoPlayer.playbackParameters = PlaybackParameters(s.playbackSpeed)
+        }
+        exoPlayer.skipSilenceEnabled = s.skipSilence
+        if (silenceSkipper.keepMs != s.silenceKeepMs) {
+            silenceSkipper.keepMs = s.silenceKeepMs
+            // The new length takes effect at the next flush; seeking in place forces one.
+            if (s.skipSilence && player.mediaItemCount > 0) exoPlayer.seekTo(exoPlayer.currentPosition)
+        }
     }
 
     private fun syncWithQueue(queue: List<EpisodeWithPodcast>) {
