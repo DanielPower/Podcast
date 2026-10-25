@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -54,6 +55,7 @@ fun PodcastDetailScreen(
     onSubscribe: () -> Unit,
     onUnsubscribe: () -> Unit,
     onAddToQueue: (Long) -> Unit,
+    onPlay: (Long) -> Unit,
     onOpenEpisode: (Long) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -82,6 +84,7 @@ fun PodcastDetailScreen(
                         item,
                         onClick = { onOpenEpisode(item.episode.id) },
                         onAddToQueue = { onAddToQueue(item.episode.id) },
+                        onPlay = { onPlay(item.episode.id) },
                     )
                     HorizontalDivider(Modifier.padding(horizontal = SideMargin), color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -169,7 +172,7 @@ private fun Header(
 }
 
 @Composable
-private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQueue: () -> Unit) {
+private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQueue: () -> Unit, onPlay: () -> Unit) {
     val episode = item.episode
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -192,6 +195,10 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        // Jumps to the front of the queue and plays now, streaming until the download finishes.
+        IconButton(onClick = onPlay) {
+            Icon(Icons.Default.PlayArrow, contentDescription = "Play now")
         }
         when {
             episode.downloadState == DownloadState.QUEUED || episode.downloadState == DownloadState.DOWNLOADING ->

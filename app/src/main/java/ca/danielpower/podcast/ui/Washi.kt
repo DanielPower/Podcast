@@ -79,7 +79,7 @@ fun ScreenHeader(
 }
 
 /**
- * The title row of a page opened on top of a tab (a podcast, search, History, Settings): a back
+ * The title row of a page opened on top of a tab (a podcast, History, Settings): a back
  * arrow, then [content] (usually [PageTitle]), then [actions]. The same height as [ScreenHeader].
  */
 @Composable

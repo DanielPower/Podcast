@@ -85,8 +85,6 @@ import ca.danielpower.podcast.ui.PodcastsScreen
 import ca.danielpower.podcast.ui.PodcastsViewModel
 import ca.danielpower.podcast.ui.QueueScreen
 import ca.danielpower.podcast.ui.QueueViewModel
-import ca.danielpower.podcast.ui.SearchScreen
-import ca.danielpower.podcast.ui.SearchViewModel
 import ca.danielpower.podcast.ui.SettingsScreen
 import ca.danielpower.podcast.ui.StatisticsScreen
 import ca.danielpower.podcast.ui.StatisticsViewModel
@@ -229,7 +227,7 @@ private fun App(
             navController = navController,
             startDestination = Tab.Queue.route,
             modifier = Modifier.fillMaxSize(),
-            // Switching tabs fades. Pages opened from a tab (a podcast, search, Settings, an episode)
+            // Switching tabs fades. Pages opened from a tab (a podcast, Settings, an episode)
             // slide in from the right and slide back out to the right, like Android's own screens;
             // with gesture navigation the back swipe drags them.
             enterTransition = { if (opensPage()) slideInHorizontally(tween(PAGE_MS)) { it } else fadeIn(tween(FADE_MS)) },
@@ -296,10 +294,33 @@ private fun App(
                         // Not in this effect, which clearing refreshId restarts.
                         scope.launch { snackbar.showSnackbar(message) }
                     }
+                    val search by vm.search.collectAsStateWithLifecycle()
+                    val openResult = { result: DirectoryResult ->
+                        val args = listOf(
+                            "feedUrl" to result.feedUrl,
+                            "title" to result.title,
+                            "author" to result.author,
+                            "artworkUrl" to result.artworkUrl,
+                        ).mapNotNull { (name, value) -> value?.let { "$name=${Uri.encode(it)}" } }
+                        navController.navigate("podcast?" + args.joinToString("&"))
+                    }
                     PodcastsScreen(
                         podcasts = podcasts,
+                        search = search,
+                        onQueryChange = vm::setQuery,
+                        // A pasted feed URL opens that podcast, for feeds the directory doesn't list.
+                        onSearch = {
+                            val feedUrl = feedUrlOrNull(search.query)
+                            if (feedUrl != null) {
+                                openResult(DirectoryResult(title = "", author = null, feedUrl = feedUrl, artworkUrl = null))
+                            } else {
+                                vm.searchNow()
+                            }
+                        },
+                        onClearSearch = vm::clearSearch,
+                        onSubscribe = vm::subscribe,
+                        onOpenResult = openResult,
                         onOpen = { navController.navigate("podcast/$it") },
-                        onSearch = { navController.navigate(SEARCH_ROUTE) },
                         refreshing = refreshId != null,
                         onRefresh = { refreshId = Refresh.now(context).toString() },
                         onOpenSettings = openSettings,
@@ -355,45 +376,11 @@ private fun App(
                     )
                 }
             }
-            composable(SEARCH_ROUTE) {
-                TabPage(chromeHeight) {
-                    val vm: SearchViewModel = viewModel(factory = AppViewModelFactory)
-                    val state by vm.state.collectAsStateWithLifecycle()
-                    val subscribed by vm.subscribed.collectAsStateWithLifecycle()
-                    val openResult = { result: DirectoryResult ->
-                        val args = listOf(
-                            "feedUrl" to result.feedUrl,
-                            "title" to result.title,
-                            "author" to result.author,
-                            "artworkUrl" to result.artworkUrl,
-                        ).mapNotNull { (name, value) -> value?.let { "$name=${Uri.encode(it)}" } }
-                        navController.navigate("podcast?" + args.joinToString("&"))
-                    }
-                    SearchScreen(
-                        state = state,
-                        subscribedFeedUrls = subscribed,
-                        onQueryChange = vm::setQuery,
-                        // A pasted feed URL opens that podcast, for feeds the directory doesn't list.
-                        onSearch = {
-                            val feedUrl = feedUrlOrNull(state.query)
-                            if (feedUrl != null) {
-                                openResult(DirectoryResult(title = "", author = null, feedUrl = feedUrl, artworkUrl = null))
-                            } else {
-                                vm.search()
-                            }
-                        },
-                        onClear = vm::clearSearch,
-                        onSubscribe = vm::subscribe,
-                        onOpen = openResult,
-                        onBack = { navController.popBackStack() },
-                    )
-                }
-            }
             composable(
                 "podcast/{podcastId}",
                 arguments = listOf(navArgument("podcastId") { type = NavType.LongType }),
             ) {
-                TabPage(chromeHeight) { PodcastPage(openEpisode, onBack = { navController.popBackStack() }) }
+                TabPage(chromeHeight) { PodcastPage(openEpisode, connection, onBack = { navController.popBackStack() }) }
             }
             // From search: the feed isn't necessarily subscribed to, or even loaded yet.
             composable(
@@ -405,7 +392,7 @@ private fun App(
                     }
                 },
             ) {
-                TabPage(chromeHeight) { PodcastPage(openEpisode, onBack = { navController.popBackStack() }) }
+                TabPage(chromeHeight) { PodcastPage(openEpisode, connection, onBack = { navController.popBackStack() }) }
             }
             composable(
                 EPISODE_ROUTE,
@@ -447,7 +434,7 @@ private fun App(
 }
 
 @Composable
-private fun PodcastPage(openEpisode: (Long) -> Unit, onBack: () -> Unit) {
+private fun PodcastPage(openEpisode: (Long) -> Unit, connection: PlayerConnection?, onBack: () -> Unit) {
     val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
     val podcast by vm.podcast.collectAsStateWithLifecycle()
     val episodes by vm.episodes.collectAsStateWithLifecycle()
@@ -461,6 +448,11 @@ private fun PodcastPage(openEpisode: (Long) -> Unit, onBack: () -> Unit) {
         onSubscribe = vm::subscribe,
         onUnsubscribe = vm::unsubscribe,
         onAddToQueue = vm::addToQueue,
+        // As on the episode page: queued if it wasn't, and the player moves it to the front.
+        onPlay = { id ->
+            vm.addToQueue(id)
+            connection?.play(id)
+        },
         onOpenEpisode = openEpisode,
         onBack = onBack,
     )
@@ -489,11 +481,10 @@ private fun refreshMessage(info: WorkInfo): String {
 private fun isPodcastRoute(route: String) = route.startsWith("podcast/") || route.startsWith("podcast?")
 
 private fun tabFor(route: String): Tab = when {
-    route == SEARCH_ROUTE || isPodcastRoute(route) -> Tab.Podcasts
+    isPodcastRoute(route) -> Tab.Podcasts
     else -> Tab.entries.firstOrNull { it.route == route } ?: Tab.Queue
 }
 private const val SETTINGS_ROUTE = "settings"
-private const val SEARCH_ROUTE = "search"
 private const val HISTORY_ROUTE = "history"
 private const val FADE_MS = 200
 private const val PAGE_MS = 300
@@ -501,7 +492,7 @@ private const val PAGE_MS = 300
 /** A page opened on top of a tab, as opposed to a tab itself. */
 private fun NavBackStackEntry.isPage(): Boolean =
     destination.route.let {
-        it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it == HISTORY_ROUTE || it == EPISODE_ROUTE ||
+        it == SETTINGS_ROUTE || it == HISTORY_ROUTE || it == EPISODE_ROUTE ||
             it?.let(::isPodcastRoute) == true
     }
 
@@ -565,11 +556,6 @@ private fun BottomBar(navController: NavHostController, modifier: Modifier = Mod
                     if (selected) {
                         navController.popBackStack(tab.route, inclusive = false)
                     } else {
-                        // Leaving the Podcasts tab drops a search in progress, so it isn't restored
-                        // (with the keyboard popping up) when the tab is opened again.
-                        if (runCatching { navController.getBackStackEntry(SEARCH_ROUTE) }.isSuccess) {
-                            navController.popBackStack(SEARCH_ROUTE, inclusive = true)
-                        }
                         navController.navigate(tab.route) {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                             launchSingleTop = true

@@ -15,6 +15,10 @@ import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.Podcast
 import ca.danielpower.podcast.data.PodcastRepository
 import ca.danielpower.podcast.data.PodcastStats
+import ca.danielpower.podcast.data.feedUrlOrNull
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
@@ -41,7 +45,6 @@ val AppViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
     initializer { PodcastsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { HistoryViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer { StatisticsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
-    initializer { SearchViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
     initializer {
         EpisodeViewModel(
             repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]),
@@ -110,53 +113,86 @@ class StatisticsViewModel(private val repository: PodcastRepository) : ViewModel
     fun next() = choice.update { (range, offset) -> range to minOf(offset + 1, 0) }
 }
 
-class PodcastsViewModel(private val repository: PodcastRepository) : ViewModel() {
-    val podcasts: StateFlow<List<Podcast>?> = repository.observePodcasts().stateIn(this, null)
-}
-
 data class SearchState(
     val query: String = "",
     val loading: Boolean = false,
+    /** The directory's results for [searchedFor]; kept while a newer search loads, so the list doesn't jump. */
     val results: List<DirectoryResult> = emptyList(),
+    val searchedFor: String? = null,
     val error: String? = null,
     val subscribing: Set<String> = emptySet(),
 )
 
-class SearchViewModel(private val repository: PodcastRepository) : ViewModel() {
-    private val _state = MutableStateFlow(SearchState())
-    val state = _state.asStateFlow()
+/** The subscriptions, and the search above them: subscriptions filter as you type, the directory after a pause. */
+class PodcastsViewModel(private val repository: PodcastRepository) : ViewModel() {
+    val podcasts: StateFlow<List<Podcast>?> = repository.observePodcasts().stateIn(this, null)
 
-    val subscribed: StateFlow<List<String>> = repository.observeSubscribedFeedUrls().stateIn(this, emptyList())
+    private val _search = MutableStateFlow(SearchState())
+    val search = _search.asStateFlow()
+    private var searchJob: Job? = null
 
-    fun setQuery(query: String) = _state.update { it.copy(query = query) }
+    fun setQuery(query: String) {
+        _search.update { it.copy(query = query) }
+        val term = query.trim()
+        when {
+            term.length < MIN_SEARCH_LENGTH || feedUrlOrNull(term) != null -> {
+                searchJob?.cancel()
+                _search.update { it.copy(loading = false, results = emptyList(), searchedFor = null, error = null) }
+            }
+            // Typing a space, say, doesn't change what's searched for.
+            term != _search.value.searchedFor -> searchDirectory(term, SEARCH_DELAY_MS)
+        }
+    }
 
-    fun clearSearch() = _state.update { it.copy(query = "", results = emptyList(), error = null) }
+    /** The keyboard's search key: searches now instead of after the pause. */
+    fun searchNow() {
+        val term = _search.value.query.trim()
+        if (term.isEmpty() || feedUrlOrNull(term) != null) return
+        val state = _search.value
+        if (term == state.searchedFor && state.error == null && !state.loading) return
+        searchDirectory(term, 0)
+    }
 
-    fun search() {
-        val term = _state.value.query.trim()
-        if (term.isEmpty()) return
-        _state.update { it.copy(loading = true, error = null) }
-        viewModelScope.launch {
+    fun clearSearch() {
+        searchJob?.cancel()
+        _search.update { it.copy(query = "", loading = false, results = emptyList(), searchedFor = null, error = null) }
+    }
+
+    private fun searchDirectory(term: String, delayMs: Long) {
+        // A newer search cancels the older one, so its results can't land after the newer ones.
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(delayMs)
+            _search.update { it.copy(loading = true, error = null) }
             try {
                 val results = repository.directory.search(term)
-                _state.update { it.copy(loading = false, results = results) }
+                _search.update { it.copy(loading = false, results = results, searchedFor = term) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _state.update { it.copy(loading = false, error = "Search failed: ${e.message}") }
+                _search.update {
+                    it.copy(loading = false, results = emptyList(), searchedFor = term, error = "Search failed: ${e.message}")
+                }
             }
         }
     }
 
     fun subscribe(result: DirectoryResult) {
-        _state.update { it.copy(subscribing = it.subscribing + result.feedUrl, error = null) }
+        _search.update { it.copy(subscribing = it.subscribing + result.feedUrl, error = null) }
         viewModelScope.launch {
             try {
                 repository.subscribe(result.feedUrl)
             } catch (e: Exception) {
-                _state.update { it.copy(error = "Couldn't subscribe to ${result.title}: ${e.message}") }
+                _search.update { it.copy(error = "Couldn't subscribe to ${result.title.ifEmpty { "this feed" }}: ${e.message}") }
             } finally {
-                _state.update { it.copy(subscribing = it.subscribing - result.feedUrl) }
+                _search.update { it.copy(subscribing = it.subscribing - result.feedUrl) }
             }
         }
+    }
+
+    private companion object {
+        const val MIN_SEARCH_LENGTH = 2
+        const val SEARCH_DELAY_MS = 200L
     }
 }
 
