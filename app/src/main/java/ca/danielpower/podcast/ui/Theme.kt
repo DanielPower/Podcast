@@ -3,6 +3,7 @@ package ca.danielpower.podcast.ui
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -226,7 +227,9 @@ fun PodcastTheme(scheme: Scheme, dark: Boolean, content: @Composable () -> Unit)
             colorScheme = palette.toColorScheme(),
             typography = AppTypography,
             shapes = AppShapes,
-            content = content,
-        )
+        ) {
+            // Text outside a Surface or Scaffold takes LocalContentColor, which defaults to black.
+            CompositionLocalProvider(LocalContentColor provides palette.ink, content = content)
+        }
     }
 }
