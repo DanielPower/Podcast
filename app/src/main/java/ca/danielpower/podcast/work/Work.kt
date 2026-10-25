@@ -52,6 +52,7 @@ class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         val repository = applicationContext.repository
         repository.refreshAll()
         repository.deleteExpiredDownloads()
+        repository.deleteUnusedPodcasts()
         return Result.success()
     }
 }

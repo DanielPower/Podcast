@@ -9,7 +9,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Podcast::class, Episode::class, Chapter::class], version = 3)
+@Database(entities = [Podcast::class, Episode::class, Chapter::class], version = 4)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
@@ -20,7 +20,7 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, "podcast.db")
                 // Version 1 shipped only in pre-release test builds, with more than one schema.
                 .fallbackToDestructiveMigrationFrom(1)
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }
@@ -39,6 +39,14 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
                 "FOREIGN KEY(`episodeId`) REFERENCES `episodes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapters_episodeId` ON `chapters` (`episodeId`)")
+    }
+}
+
+/** Lets a podcast exist unsubscribed, for pages opened from search. */
+private val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE podcasts ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE podcasts ADD COLUMN openedAt INTEGER NOT NULL DEFAULT 0")
     }
 }
 

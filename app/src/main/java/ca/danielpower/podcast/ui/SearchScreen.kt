@@ -1,5 +1,6 @@
 package ca.danielpower.podcast.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,6 +55,7 @@ fun SearchScreen(
     onSearch: () -> Unit,
     onClear: () -> Unit,
     onSubscribe: (DirectoryResult) -> Unit,
+    onOpen: (DirectoryResult) -> Unit,
     onBack: () -> Unit,
 ) {
     val focus = remember { FocusRequester() }
@@ -134,6 +136,7 @@ fun SearchScreen(
                             subscribed = result.feedUrl in subscribedFeedUrls,
                             subscribing = result.feedUrl in state.subscribing,
                             onSubscribe = { onSubscribe(result) },
+                            onClick = { onOpen(result) },
                         )
                     }
                 }
@@ -148,10 +151,11 @@ private fun SearchResultRow(
     subscribed: Boolean,
     subscribing: Boolean,
     onSubscribe: () -> Unit,
+    onClick: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = SideMargin, end = 16.dp, top = 10.dp, bottom = 10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = SideMargin, end = 16.dp, top = 10.dp, bottom = 10.dp),
     ) {
         Artwork(result.artworkUrl, 56.dp)
         Spacer(Modifier.width(12.dp))
