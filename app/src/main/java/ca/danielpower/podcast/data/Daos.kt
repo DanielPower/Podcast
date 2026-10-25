@@ -1,0 +1,119 @@
+package ca.danielpower.podcast.data
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface PodcastDao {
+    @Query("SELECT * FROM podcasts ORDER BY title COLLATE NOCASE")
+    fun observeAll(): Flow<List<Podcast>>
+
+    @Query("SELECT * FROM podcasts")
+    suspend fun getAll(): List<Podcast>
+
+    @Query("SELECT * FROM podcasts WHERE id = :id")
+    fun observe(id: Long): Flow<Podcast?>
+
+    @Query("SELECT * FROM podcasts WHERE id = :id")
+    suspend fun get(id: Long): Podcast?
+
+    @Query("SELECT * FROM podcasts WHERE feedUrl = :feedUrl")
+    suspend fun getByFeedUrl(feedUrl: String): Podcast?
+
+    @Query("SELECT feedUrl FROM podcasts")
+    fun observeFeedUrls(): Flow<List<String>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(podcast: Podcast): Long
+
+    @Update
+    suspend fun update(podcast: Podcast)
+
+    @Query("DELETE FROM podcasts WHERE id = :id")
+    suspend fun delete(id: Long)
+}
+
+private const val EPISODE_WITH_PODCAST = """
+    SELECT e.*, p.id AS podcast_id, p.title AS podcast_title, p.artworkUrl AS podcast_artworkUrl
+    FROM episodes e JOIN podcasts p ON p.id = e.podcastId
+"""
+
+@Dao
+abstract class EpisodeDao {
+    @Query("$EPISODE_WITH_PODCAST WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
+    abstract fun observeQueue(): Flow<List<EpisodeWithPodcast>>
+
+    @Query("$EPISODE_WITH_PODCAST WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
+    abstract suspend fun getQueue(): List<EpisodeWithPodcast>
+
+    @Query("$EPISODE_WITH_PODCAST WHERE e.podcastId = :podcastId ORDER BY e.publishedAt DESC")
+    abstract fun observeForPodcast(podcastId: Long): Flow<List<EpisodeWithPodcast>>
+
+    @Query("$EPISODE_WITH_PODCAST WHERE e.id = :id")
+    abstract suspend fun getWithPodcast(id: Long): EpisodeWithPodcast?
+
+    @Query("SELECT * FROM episodes WHERE id = :id")
+    abstract suspend fun get(id: Long): Episode?
+
+    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId")
+    abstract suspend fun getForPodcast(podcastId: Long): List<Episode>
+
+    @Query("SELECT guid FROM episodes WHERE podcastId = :podcastId")
+    abstract suspend fun getGuids(podcastId: Long): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertAll(episodes: List<Episode>): List<Long>
+
+    @Query("SELECT MAX(queuePosition) FROM episodes")
+    abstract suspend fun maxQueuePosition(): Long?
+
+    @Query("SELECT MIN(queuePosition) FROM episodes")
+    abstract suspend fun minQueuePosition(): Long?
+
+    @Query("UPDATE episodes SET queuePosition = :position, removedFromQueueAt = NULL WHERE id = :id")
+    abstract suspend fun setQueuePosition(id: Long, position: Long)
+
+    @Query("UPDATE episodes SET queuePosition = NULL, removedFromQueueAt = :now WHERE id = :id")
+    abstract suspend fun removeFromQueue(id: Long, now: Long)
+
+    /** Downloaded episodes that left the queue before [cutoff]. */
+    @Query(
+        """SELECT * FROM episodes WHERE queuePosition IS NULL AND localPath IS NOT NULL
+        AND removedFromQueueAt IS NOT NULL AND removedFromQueueAt < :cutoff""",
+    )
+    abstract suspend fun getExpiredDownloads(cutoff: Long): List<Episode>
+
+    @Query("UPDATE episodes SET downloadState = :state, localPath = :localPath WHERE id = :id")
+    abstract suspend fun setDownload(id: Long, state: DownloadState, localPath: String?)
+
+    @Query("UPDATE episodes SET positionMs = :positionMs WHERE id = :id")
+    abstract suspend fun setPosition(id: Long, positionMs: Long)
+
+    @Query("UPDATE episodes SET played = 1, positionMs = 0 WHERE id = :id")
+    abstract suspend fun markPlayed(id: Long)
+
+    /** Appends to the end of the queue, unless the episode is already queued. */
+    @Transaction
+    open suspend fun appendToQueue(id: Long) {
+        val episode = get(id) ?: return
+        if (episode.queuePosition != null) return
+        setQueuePosition(id, (maxQueuePosition() ?: 0) + 1)
+    }
+
+    /** Moves the episode to the front of the queue, adding it if needed. */
+    @Transaction
+    open suspend fun moveToFront(id: Long) {
+        setQueuePosition(id, (minQueuePosition() ?: 0) - 1)
+    }
+
+    /** Rewrites queue positions so they follow the given order. */
+    @Transaction
+    open suspend fun reorderQueue(orderedIds: List<Long>) {
+        orderedIds.forEachIndexed { index, id -> setQueuePosition(id, index.toLong()) }
+    }
+}
