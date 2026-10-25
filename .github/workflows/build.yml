@@ -20,11 +20,12 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # By default only main writes the cache, so every run on a PR branch started cold.
+          cache-read-only: false
+      # The APK is built and linked first so it can be installed sooner; tests and lint run after.
       - name: Build debug APK
-        run: ./gradlew assembleDebug testDebugUnitTest lintDebug
-      - name: Show lint report
-        if: failure()
-        run: cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt || true
+        run: ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         id: upload
         with:
@@ -49,3 +50,8 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
+      - name: Tests and lint
+        run: ./gradlew testDebugUnitTest lintDebug
+      - name: Show lint report
+        if: failure()
+        run: cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt || true
