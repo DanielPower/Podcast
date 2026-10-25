@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,6 +60,17 @@ fun SearchScreen(
 ) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    // Like other search screens: searching or scrolling the results lets go of the field, which
+    // also hides the keyboard, and the x takes it back.
+    val search = {
+        focusManager.clearFocus()
+        onSearch()
+    }
+    val results = rememberLazyListState()
+    LaunchedEffect(results.isScrollInProgress) {
+        if (results.isScrollInProgress) focusManager.clearFocus()
+    }
     // Focus (and so the keyboard) only on first open, not when coming back from a podcast's page.
     var focusedOnce by rememberSaveable { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -79,24 +92,21 @@ fun SearchScreen(
                 placeholder = { Text("Search, or paste a feed URL") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = {
-                    keyboard?.hide()
-                    onSearch()
-                }),
+                keyboardActions = KeyboardActions(onSearch = { search() }),
                 trailingIcon = {
                     Row {
                         if (state.query.isNotEmpty()) {
                             IconButton(onClick = {
                                 onClear()
+                                // Shown explicitly too: if the keyboard was closed with back, the field
+                                // kept focus and focusing it again wouldn't bring the keyboard back.
                                 focus.requestFocus()
+                                keyboard?.show()
                             }) {
                                 Icon(Icons.Default.Close, contentDescription = "Clear search")
                             }
                         }
-                        IconButton(onClick = {
-                            keyboard?.hide()
-                            onSearch()
-                        }) {
+                        IconButton(onClick = search) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
                     }
@@ -112,7 +122,7 @@ fun SearchScreen(
             if (state.loading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), state = results) {
                     state.error?.let { error ->
                         item {
                             Text(
