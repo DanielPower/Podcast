@@ -183,7 +183,7 @@ abstract class EpisodeDao {
      * once one has been, the player has stored its real length.
      */
     @Query(
-        """UPDATE episodes SET title = :title, audioUrl = :audioUrl,
+        """UPDATE episodes SET title = :title, audioUrl = :audioUrl, artworkUrl = COALESCE(:artworkUrl, artworkUrl),
         publishedAt = CASE WHEN :publishedAt > 0 THEN :publishedAt ELSE publishedAt END,
         durationMs = CASE WHEN lastPlayedAt IS NULL THEN COALESCE(:durationMs, durationMs) ELSE durationMs END,
         link = :link, seasonNumber = :seasonNumber, episodeNumber = :episodeNumber,
@@ -194,6 +194,7 @@ abstract class EpisodeDao {
         guid: String,
         title: String,
         audioUrl: String,
+        artworkUrl: String?,
         publishedAt: Long,
         durationMs: Long?,
         link: String?,
@@ -211,6 +212,7 @@ abstract class EpisodeDao {
                 item.guid,
                 item.title,
                 item.audioUrl,
+                item.artworkUrl,
                 item.publishedAt,
                 item.durationMs,
                 item.link,

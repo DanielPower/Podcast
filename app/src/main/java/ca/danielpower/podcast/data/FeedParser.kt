@@ -49,6 +49,7 @@ object FeedParser {
 
         var title: String? = null
         var author: String? = null
+        val podcastImages = mutableListOf<PodcastImage>()
         var itunesImage: String? = null
         var rssImage: String? = null
         var description: String? = null
@@ -62,6 +63,7 @@ object FeedParser {
                 "itunes:author" -> if (author == null) author = readText(parser)
                 "description" -> if (description == null) description = readText(parser)
                 "itunes:summary" -> if (description == null) description = readText(parser)
+                "podcast:image" -> readPodcastImage(parser)?.let { podcastImages += it }
                 "itunes:image" -> if (itunesImage == null) itunesImage = parser.getAttributeValue(null, "href")
                 "image" -> {
                     val url = readImageUrl(parser)
@@ -73,8 +75,8 @@ object FeedParser {
         return ParsedFeed(
             title = title?.trim().orEmpty().ifEmpty { "Untitled podcast" },
             author = author?.trim(),
-            // The RSS image is often a small thumbnail; the iTunes one is the full-size artwork.
-            artworkUrl = itunesImage?.trim()?.takeIf { it.isNotEmpty() } ?: rssImage,
+            // Podcasting 2.0 artwork first, then iTunes; the RSS image is often a small thumbnail.
+            artworkUrl = bestArtwork(podcastImages) ?: itunesImage?.trim()?.takeIf { it.isNotEmpty() } ?: rssImage,
             description = description?.trim(),
             episodes = episodes,
         )
@@ -87,6 +89,7 @@ object FeedParser {
         var audioUrl: String? = null
         var pubDate: String? = null
         var duration: String? = null
+        val podcastImages = mutableListOf<PodcastImage>()
         var artwork: String? = null
         var contentHtml: String? = null
         var link: String? = null
@@ -107,6 +110,7 @@ object FeedParser {
                 "enclosure" -> if (audioUrl == null) audioUrl = parser.getAttributeValue(null, "url")
                 "pubDate" -> pubDate = readText(parser)
                 "itunes:duration" -> duration = readText(parser)
+                "podcast:image" -> readPodcastImage(parser)?.let { podcastImages += it }
                 "itunes:image" -> artwork = parser.getAttributeValue(null, "href")
                 "content:encoded" -> contentHtml = readText(parser)
                 "link" -> link = readText(parser)
@@ -126,7 +130,7 @@ object FeedParser {
             audioUrl = url,
             publishedAt = pubDate?.let(::parseDate) ?: 0L,
             durationMs = duration?.let(::parseDuration),
-            artworkUrl = artwork,
+            artworkUrl = bestArtwork(podcastImages) ?: artwork?.trim()?.takeIf { it.isNotEmpty() },
             link = link?.trim()?.takeIf { it.isNotEmpty() },
             seasonNumber = season?.trim()?.toIntOrNull(),
             episodeNumber = episodeNumber?.trim()?.toIntOrNull(),
@@ -134,6 +138,28 @@ object FeedParser {
             inlineChapters = inlineChapters,
         )
     }
+
+    /** A Podcasting 2.0 `<podcast:image>`. */
+    private class PodcastImage(val href: String, val width: Int, val purpose: String?)
+
+    private fun readPodcastImage(parser: XmlPullParser): PodcastImage? {
+        val href = parser.getAttributeValue(null, "href")?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return PodcastImage(
+            href = href,
+            width = parser.getAttributeValue(null, "width")?.trim()?.toIntOrNull() ?: 0,
+            purpose = parser.getAttributeValue(null, "purpose"),
+        )
+    }
+
+    /**
+     * The largest `<podcast:image>` meant as artwork. One with no purpose counts as artwork; ones
+     * only for other uses (a banner, social sharing) are skipped.
+     */
+    private fun bestArtwork(images: List<PodcastImage>): String? =
+        images
+            .filter { image -> image.purpose.isNullOrBlank() || image.purpose.split(' ').any { it == "artwork" } }
+            .maxByOrNull { it.width }
+            ?.href
 
     /** Reads `<psc:chapters>`, leaving the parser at its closing tag. */
     private fun readPodloveChapters(parser: XmlPullParser): List<ParsedChapter> {
