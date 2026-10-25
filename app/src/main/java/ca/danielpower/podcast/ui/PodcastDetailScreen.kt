@@ -1,0 +1,186 @@
+package ca.danielpower.podcast.ui
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import ca.danielpower.podcast.data.DownloadState
+import ca.danielpower.podcast.data.EpisodeWithPodcast
+import ca.danielpower.podcast.data.Podcast
+import coil.compose.AsyncImage
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PodcastDetailScreen(
+    podcast: Podcast?,
+    episodes: List<EpisodeWithPodcast>,
+    onAddToQueue: (Long) -> Unit,
+    onUnsubscribe: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmUnsubscribe by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(podcast?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Unsubscribe") },
+                            onClick = {
+                                menuOpen = false
+                                confirmUnsubscribe = true
+                            },
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(Modifier.padding(padding).fillMaxSize()) {
+            if (podcast != null) {
+                item { Header(podcast) }
+            }
+            items(episodes, key = { it.episode.id }) { item ->
+                EpisodeRow(item, onAddToQueue = { onAddToQueue(item.episode.id) })
+                HorizontalDivider()
+            }
+        }
+    }
+
+    if (confirmUnsubscribe) {
+        AlertDialog(
+            onDismissRequest = { confirmUnsubscribe = false },
+            title = { Text("Unsubscribe?") },
+            text = { Text("Its episodes will be removed from your queue and deleted from this device.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmUnsubscribe = false
+                    onUnsubscribe()
+                }) { Text("Unsubscribe") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmUnsubscribe = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun Header(podcast: Podcast) {
+    Row(Modifier.padding(16.dp)) {
+        AsyncImage(
+            model = podcast.artworkUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(96.dp).clip(RoundedCornerShape(10.dp)),
+        )
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(podcast.title, style = MaterialTheme.typography.titleMedium)
+            podcast.author?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            podcast.description?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeRow(item: EpisodeWithPodcast, onAddToQueue: () -> Unit) {
+    val episode = item.episode
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                episode.title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = if (episode.played) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                listOfNotNull(
+                    formatDate(episode.publishedAt).takeIf { it.isNotEmpty() },
+                    episode.durationMs?.let(::formatDuration),
+                    "Played".takeIf { episode.played },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        when {
+            episode.queuePosition != null -> IconButton(onClick = {}, enabled = false) {
+                Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = "In queue")
+            }
+            episode.downloadState == DownloadState.QUEUED || episode.downloadState == DownloadState.DOWNLOADING ->
+                IconButton(onClick = {}, enabled = false) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            else -> IconButton(onClick = onAddToQueue) {
+                if (episode.downloadState == DownloadState.FAILED) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = "Download failed, retry")
+                } else {
+                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "Add to queue")
+                }
+            }
+        }
+    }
+}
