@@ -4,10 +4,11 @@ A simple Android podcast player built around a single queue.
 
 - **Queue**: every episode waiting to be played. Drag the handle to reorder, swipe right to remove, tap to play now.
 - **Podcasts**: a grid of subscriptions. "Add podcast" searches the Apple Podcasts directory.
-- New episodes are downloaded automatically (checked hourly, and when the app opens). Once a download finishes, the episode is appended to the queue.
+- New episodes are downloaded automatically (checked hourly, and when the app opens). Each takes its place at the end of the queue as soon as its download starts, showing progress, and becomes playable once downloaded.
+- **Android Auto**: the queue is browsable in the car, and "next" skips the current episode (removes it from the queue).
 - When an episode finishes it is removed from the queue and the next episode starts.
 - Downloads are kept until an episode has been out of the queue for a week, then deleted.
-- From a podcast's page, older episodes can be downloaded; they join the end of the queue once downloaded.
+- From a podcast's page, older episodes can be downloaded; they join the end of the queue while downloading.
 
 ## Building
 
