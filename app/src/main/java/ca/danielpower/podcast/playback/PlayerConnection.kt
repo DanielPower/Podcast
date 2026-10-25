@@ -32,12 +32,18 @@ class PlayerConnection(context: Context) {
         future.addListener({ if (!released) controller = future.get() }, ContextCompat.getMainExecutor(context))
     }
 
-    /** Plays the given episode now. The caller should also move it to the front of the queue. */
-    fun play(episodeId: Long) {
+    /**
+     * Plays the given episode now; the service moves it to the front of the queue. Starts at
+     * [startMs] if given, otherwise where it was left off.
+     */
+    fun play(episodeId: Long, startMs: Long? = null) {
         val player = controller ?: return
         if (player.currentMediaItem?.mediaId != episodeId.toString()) {
-            player.setMediaItem(MediaItem.Builder().setMediaId(episodeId.toString()).build())
+            val item = MediaItem.Builder().setMediaId(episodeId.toString()).build()
+            if (startMs != null) player.setMediaItem(item, startMs) else player.setMediaItem(item)
             player.prepare()
+        } else if (startMs != null) {
+            player.seekTo(startMs)
         }
         player.play()
     }

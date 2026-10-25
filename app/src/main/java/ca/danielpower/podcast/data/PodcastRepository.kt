@@ -134,6 +134,16 @@ class PodcastRepository(
 
     suspend fun moveToFront(episodeId: Long) = episodes.moveToFront(episodeId)
 
+    /** Puts the episode second in the queue, right after the one playing (downloading it if needed). */
+    suspend fun playNext(episodeId: Long) {
+        addToQueue(episodeId)
+        val queue = episodes.getQueue().map { it.episode.id }
+        if (queue.firstOrNull() == episodeId) return
+        val ids = queue.filter { it != episodeId }
+        if (ids.isEmpty()) return
+        episodes.reorderQueue(listOf(ids.first(), episodeId) + ids.drop(1))
+    }
+
     suspend fun reorderQueue(orderedIds: List<Long>) = episodes.reorderQueue(orderedIds)
 
     /**

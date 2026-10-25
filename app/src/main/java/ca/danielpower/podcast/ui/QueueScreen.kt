@@ -59,7 +59,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 fun QueueScreen(
     queue: List<EpisodeWithPodcast>?,
     playingEpisodeId: Long?,
-    onPlay: (Long) -> Unit,
+    onOpen: (Long) -> Unit,
     onReorder: (List<Long>) -> Unit,
     onDismiss: (Long) -> Unit,
     onRetryDownload: (Long) -> Unit,
@@ -71,7 +71,7 @@ fun QueueScreen(
                 queue.isEmpty() -> EmptyMessage(
                     "Your queue is empty.\nNew episodes from your podcasts are added here once they've downloaded.",
                 )
-                else -> QueueList(queue, playingEpisodeId, onPlay, onReorder, onDismiss, onRetryDownload)
+                else -> QueueList(queue, playingEpisodeId, onOpen, onReorder, onDismiss, onRetryDownload)
             }
         }
     }
@@ -81,7 +81,7 @@ fun QueueScreen(
 private fun QueueList(
     queue: List<EpisodeWithPodcast>,
     playingEpisodeId: Long?,
-    onPlay: (Long) -> Unit,
+    onOpen: (Long) -> Unit,
     onReorder: (List<Long>) -> Unit,
     onDismiss: (Long) -> Unit,
     onRetryDownload: (Long) -> Unit,
@@ -110,9 +110,10 @@ private fun QueueList(
                             item = item,
                             playing = item.episode.id == playingEpisodeId,
                             onClick = {
-                                when {
-                                    item.isPlayable -> onPlay(item.episode.id)
-                                    item.episode.downloadState == DownloadState.FAILED -> onRetryDownload(item.episode.id)
+                                if (item.episode.downloadState == DownloadState.FAILED) {
+                                    onRetryDownload(item.episode.id)
+                                } else {
+                                    onOpen(item.episode.id)
                                 }
                             },
                             handle = {

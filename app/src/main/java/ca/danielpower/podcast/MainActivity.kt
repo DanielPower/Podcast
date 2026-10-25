@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -37,9 +38,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.playback.PlayerConnection
 import ca.danielpower.podcast.playback.rememberPlayerUiState
 import ca.danielpower.podcast.ui.AppViewModelFactory
+import ca.danielpower.podcast.ui.EpisodeScreen
+import ca.danielpower.podcast.ui.EpisodeViewModel
 import ca.danielpower.podcast.ui.MiniPlayer
 import ca.danielpower.podcast.ui.PodcastDetailScreen
 import ca.danielpower.podcast.ui.PodcastDetailViewModel
@@ -51,6 +55,7 @@ import ca.danielpower.podcast.ui.QueueViewModel
 import ca.danielpower.podcast.ui.SearchScreen
 import ca.danielpower.podcast.ui.SearchViewModel
 import ca.danielpower.podcast.work.Refresh
+import kotlinx.coroutines.flow.flowOf
 
 class MainActivity : ComponentActivity() {
 
@@ -100,12 +105,27 @@ private fun App(connection: PlayerConnection?) {
     val navController = rememberNavController()
     val player = connection?.controller
     val playerState = rememberPlayerUiState(player)
+    val context = LocalContext.current
+    val playingChapters by remember(playerState.episodeId) {
+        playerState.episodeId?.let { context.repository.observeChapters(it) } ?: flowOf(emptyList<Chapter>())
+    }.collectAsStateWithLifecycle(emptyList())
+    val backStack by navController.currentBackStackEntryAsState()
+    // The episode screen is full height: it has its own player controls at the bottom.
+    val onEpisodeScreen = backStack?.destination?.route == EPISODE_ROUTE
+    val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
 
     Scaffold(
         bottomBar = {
-            Column {
-                MiniPlayer(playerState, player)
-                BottomBar(navController)
+            if (!onEpisodeScreen) {
+                Column {
+                    MiniPlayer(
+                        state = playerState,
+                        player = player,
+                        chapters = playingChapters,
+                        onClick = { playerState.episodeId?.let(openEpisode) },
+                    )
+                    BottomBar(navController)
+                }
             }
         },
     ) { padding ->
@@ -120,10 +140,7 @@ private fun App(connection: PlayerConnection?) {
                 QueueScreen(
                     queue = queue,
                     playingEpisodeId = playerState.episodeId,
-                    onPlay = { id ->
-                        vm.moveToFront(id)
-                        connection?.play(id)
-                    },
+                    onOpen = openEpisode,
                     onReorder = vm::reorder,
                     onDismiss = vm::dismiss,
                     onRetryDownload = vm::retryDownload,
@@ -132,7 +149,6 @@ private fun App(connection: PlayerConnection?) {
             composable(Tab.Podcasts.route) {
                 val vm: PodcastsViewModel = viewModel(factory = AppViewModelFactory)
                 val podcasts by vm.podcasts.collectAsStateWithLifecycle()
-                val context = LocalContext.current
                 PodcastsScreen(
                     podcasts = podcasts,
                     onOpen = { navController.navigate("podcast/$it") },
@@ -164,13 +180,40 @@ private fun App(connection: PlayerConnection?) {
                     podcast = podcast,
                     episodes = episodes,
                     onAddToQueue = vm::addToQueue,
+                    onOpenEpisode = openEpisode,
                     onUnsubscribe = { vm.unsubscribe { navController.popBackStack() } },
                     onBack = { navController.popBackStack() },
+                )
+            }
+            composable(
+                EPISODE_ROUTE,
+                arguments = listOf(navArgument("episodeId") { type = NavType.LongType }),
+            ) {
+                val vm: EpisodeViewModel = viewModel(factory = AppViewModelFactory)
+                val episode by vm.episode.collectAsStateWithLifecycle()
+                val chapters by vm.chapters.collectAsStateWithLifecycle()
+                val queueIndex by vm.queueIndex.collectAsStateWithLifecycle()
+                EpisodeScreen(
+                    item = episode,
+                    chapters = chapters,
+                    queueIndex = queueIndex,
+                    player = player,
+                    playerState = playerState,
+                    onBack = { navController.popBackStack() },
+                    onPlay = { startMs ->
+                        vm.prepareToPlay()
+                        connection?.play(vm.episodeId, startMs)
+                    },
+                    onPlayNext = vm::playNext,
+                    onAddToQueue = vm::addToQueue,
+                    onRemoveFromQueue = vm::removeFromQueue,
                 )
             }
         }
     }
 }
+
+private const val EPISODE_ROUTE = "episode/{episodeId}"
 
 @Composable
 private fun BottomBar(navController: NavHostController) {
