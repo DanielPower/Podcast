@@ -35,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +85,7 @@ import ca.danielpower.podcast.ui.StatisticsViewModel
 import ca.danielpower.podcast.ui.isDark
 import ca.danielpower.podcast.work.Refresh
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -146,6 +148,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
     val player = connection?.controller
     val playerState = rememberPlayerUiState(player)
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val playingChapters by remember(playerState.episodeId) {
         playerState.episodeId?.let { context.repository.observeChapters(it) } ?: flowOf(emptyList<Chapter>())
     }.collectAsStateWithLifecycle(emptyList())
@@ -246,8 +249,11 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         onChange = { change ->
                             val before = context.settings.current
                             context.settings.update(change)
-                            // Wi-Fi only changes the network the hourly refresh waits for.
-                            if (context.settings.current.wifiOnly != before.wifiOnly) Refresh.schedulePeriodic(context)
+                            // Wi-Fi only changes the network the hourly refresh and waiting downloads wait for.
+                            if (context.settings.current.wifiOnly != before.wifiOnly) {
+                                Refresh.schedulePeriodic(context)
+                                scope.launch { context.repository.requeueWaitingDownloads() }
+                            }
                         },
                         onBack = { navController.popBackStack() },
                     )

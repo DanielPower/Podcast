@@ -79,9 +79,10 @@ class PodcastRepository(
         for (episode in episodes.getForPodcast(podcastId)) {
             if (episode.queuePosition != null) episodes.removeFromQueue(episode.id, now)
             if (episode.downloadState != DownloadState.NONE || episode.localPath != null) {
+                episodes.setDownload(episode.id, DownloadState.NONE, null)
                 Downloads.cancel(context, episode.id)
                 episode.localPath?.let { File(it).delete() }
-                episodes.setDownload(episode.id, DownloadState.NONE, null)
+                partialFile(episode.id).delete()
             }
         }
         podcasts.setSubscribed(podcastId, false, now)
@@ -196,8 +197,10 @@ class PodcastRepository(
         episodes.removeFromQueue(episodeId, System.currentTimeMillis())
         val episode = episodes.get(episodeId) ?: return
         if (episode.downloadState != DownloadState.DOWNLOADED) {
-            Downloads.cancel(context, episodeId)
+            // State first, so the cancelled download doesn't put itself back to waiting.
             episodes.setDownload(episodeId, DownloadState.NONE, null)
+            Downloads.cancel(context, episodeId)
+            partialFile(episodeId).delete()
         }
     }
 
@@ -221,6 +224,9 @@ class PodcastRepository(
     suspend fun deleteUnusedPodcasts() = podcasts.deleteUnused(System.currentTimeMillis() - DAY_MS)
 
     suspend fun savePosition(episodeId: Long, positionMs: Long) = episodes.setPosition(episodeId, positionMs)
+
+    /** Called with the length the player found, which feeds often leave out or get wrong. */
+    suspend fun saveDuration(episodeId: Long, durationMs: Long) = episodes.setDuration(episodeId, durationMs)
 
     /** Called whenever an episode starts playing, so it moves to the top of the history. */
     suspend fun markPlaying(episodeId: Long) = episodes.setLastPlayed(episodeId, System.currentTimeMillis())
@@ -246,6 +252,19 @@ class PodcastRepository(
         val dir = context.getExternalFilesDir("episodes") ?: File(context.filesDir, "episodes")
         dir.mkdirs()
         return File(dir, "$episodeId.audio")
+    }
+
+    /** Where a download in progress is written; kept between attempts so it can resume. */
+    fun partialFile(episodeId: Long) = File(downloadFile(episodeId).path + ".part")
+
+    suspend fun markDownloadWaiting(episodeId: Long) = episodes.markDownloadWaiting(episodeId)
+
+    /**
+     * Re-enqueues downloads that are waiting, so they pick up a changed Wi-Fi only setting. One
+     * already running carries on.
+     */
+    suspend fun requeueWaitingDownloads() {
+        for (id in episodes.getWaitingDownloads()) Downloads.enqueue(context, id, replace = true)
     }
 
     suspend fun getEpisodeEntity(id: Long) = episodes.get(id)
