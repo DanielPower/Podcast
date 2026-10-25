@@ -21,9 +21,9 @@ class PodcastRepository(
 
     val directory = DirectorySearch(client)
 
-    fun observePodcasts() = podcasts.observeAll()
+    fun observePodcasts() = podcasts.observeSubscribed()
     fun observePodcast(id: Long) = podcasts.observe(id)
-    fun observeSubscribedFeedUrls() = podcasts.observeFeedUrls()
+    fun observeSubscribedFeedUrls() = podcasts.observeSubscribedFeedUrls()
     fun observeQueue() = episodes.observeQueue()
     fun observeEpisodes(podcastId: Long) = episodes.observeForPodcast(podcastId)
     fun observeHistory() = episodes.observeHistory()
@@ -32,11 +32,61 @@ class PodcastRepository(
     suspend fun getEpisode(id: Long) = episodes.getWithPodcast(id)
 
     /**
-     * Subscribes to a feed. Its back catalogue is recorded but not downloaded, except
-     * for the newest episode so there is something to listen to right away.
+     * Loads a feed so its page can be shown, and its episodes queued, without subscribing.
+     * Returns the podcast's id.
      */
-    suspend fun subscribe(feedUrl: String): Long {
-        podcasts.getByFeedUrl(feedUrl)?.let { return it.id }
+    suspend fun open(feedUrl: String): Long {
+        val existing = podcasts.getByFeedUrl(feedUrl) ?: return addFeed(feedUrl)
+        if (!existing.subscribed) {
+            podcasts.markOpened(existing.id, System.currentTimeMillis())
+            // A page opened before shows what it had if the feed can't be fetched now.
+            try {
+                refresh(existing)
+            } catch (e: Exception) {
+                Log.w(TAG, "Refresh failed for $feedUrl", e)
+            }
+        }
+        return existing.id
+    }
+
+    /** Subscribes to a feed from search, without opening its page first. */
+    suspend fun subscribe(feedUrl: String) {
+        subscribe(podcasts.getByFeedUrl(feedUrl)?.id ?: addFeed(feedUrl))
+    }
+
+    /**
+     * Subscribes to a podcast whose feed is already loaded. Its back catalogue isn't downloaded,
+     * except for the newest episode so there is something to listen to right away.
+     */
+    suspend fun subscribe(podcastId: Long) {
+        val podcast = podcasts.get(podcastId) ?: return
+        if (podcast.subscribed) return
+        podcasts.setSubscribed(podcastId, true, System.currentTimeMillis())
+        val newest = episodes.getForPodcast(podcastId).maxByOrNull { it.publishedAt } ?: return
+        if (!newest.played && newest.queuePosition == null && newest.downloadState != DownloadState.DOWNLOADED) {
+            startDownload(newest.id)
+        }
+    }
+
+    /**
+     * Unsubscribes: the podcast's episodes leave the queue and their downloads are deleted. It stays
+     * in the database, unsubscribed, so its page can still be shown.
+     */
+    suspend fun unsubscribe(podcastId: Long) {
+        val now = System.currentTimeMillis()
+        for (episode in episodes.getForPodcast(podcastId)) {
+            if (episode.queuePosition != null) episodes.removeFromQueue(episode.id, now)
+            if (episode.downloadState != DownloadState.NONE || episode.localPath != null) {
+                Downloads.cancel(context, episode.id)
+                episode.localPath?.let { File(it).delete() }
+                episodes.setDownload(episode.id, DownloadState.NONE, null)
+            }
+        }
+        podcasts.setSubscribed(podcastId, false, now)
+    }
+
+    /** Adds a feed's podcast and episodes, unsubscribed, and returns the podcast's id. */
+    private suspend fun addFeed(feedUrl: String): Long {
         val feed = fetchFeed(feedUrl)
         val podcastId = podcasts.insert(
             Podcast(
@@ -45,25 +95,20 @@ class PodcastRepository(
                 author = feed.author,
                 artworkUrl = feed.artworkUrl,
                 description = feed.description,
+                subscribed = false,
+                openedAt = System.currentTimeMillis(),
             ),
         )
+        // Added meanwhile by another call.
+        if (podcastId <= 0) return podcasts.getByFeedUrl(feedUrl)!!.id
         episodes.insertAll(feed.episodes.map { it.toEntity(podcastId) })
         saveInlineChapters(podcastId, feed.episodes)
-        episodes.getForPodcast(podcastId).maxByOrNull { it.publishedAt }?.let { startDownload(it.id) }
         return podcastId
     }
 
-    suspend fun unsubscribe(podcastId: Long) {
-        for (episode in episodes.getForPodcast(podcastId)) {
-            Downloads.cancel(context, episode.id)
-            episode.localPath?.let { File(it).delete() }
-        }
-        podcasts.delete(podcastId)
-    }
-
-    /** Checks every feed for new episodes and, if auto-download is on, starts downloading them. */
+    /** Checks every subscribed feed for new episodes and, if auto-download is on, starts downloading them. */
     suspend fun refreshAll() {
-        for (podcast in podcasts.getAll()) {
+        for (podcast in podcasts.getSubscribed()) {
             try {
                 refresh(podcast)
             } catch (e: Exception) {
@@ -74,20 +119,13 @@ class PodcastRepository(
 
     private suspend fun refresh(podcast: Podcast) {
         val feed = fetchFeed(podcast.feedUrl)
-        podcasts.update(
-            podcast.copy(
-                title = feed.title,
-                author = feed.author,
-                artworkUrl = feed.artworkUrl ?: podcast.artworkUrl,
-                description = feed.description,
-            ),
-        )
+        podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.artworkUrl, feed.description)
         val known = episodes.getGuids(podcast.id).toHashSet()
         val (old, fresh) = feed.episodes.distinctBy { it.guid }.partition { it.guid in known }
         episodes.updateAllMetadata(podcast.id, old)
         val ids = episodes.insertAll(fresh.map { it.toEntity(podcast.id) })
         saveInlineChapters(podcast.id, feed.episodes)
-        if (settings.current.autoDownload) ids.filter { it > 0 }.forEach { startDownload(it) }
+        if (podcast.subscribed && settings.current.autoDownload) ids.filter { it > 0 }.forEach { startDownload(it) }
     }
 
     /** Stores chapters given inline in the feed, for episodes whose chapters aren't loaded yet. */
@@ -175,6 +213,9 @@ class PodcastRepository(
             episodes.setDownload(episode.id, DownloadState.NONE, null)
         }
     }
+
+    /** Forgets podcasts opened from search (or unsubscribed from) that nothing uses any more. */
+    suspend fun deleteUnusedPodcasts() = podcasts.deleteUnused(System.currentTimeMillis() - DAY_MS)
 
     suspend fun savePosition(episodeId: Long, positionMs: Long) = episodes.setPosition(episodeId, positionMs)
 

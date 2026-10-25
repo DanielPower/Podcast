@@ -5,16 +5,15 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PodcastDao {
-    @Query("SELECT * FROM podcasts ORDER BY title COLLATE NOCASE")
-    fun observeAll(): Flow<List<Podcast>>
+    @Query("SELECT * FROM podcasts WHERE subscribed = 1 ORDER BY title COLLATE NOCASE")
+    fun observeSubscribed(): Flow<List<Podcast>>
 
-    @Query("SELECT * FROM podcasts")
-    suspend fun getAll(): List<Podcast>
+    @Query("SELECT * FROM podcasts WHERE subscribed = 1")
+    suspend fun getSubscribed(): List<Podcast>
 
     @Query("SELECT * FROM podcasts WHERE id = :id")
     fun observe(id: Long): Flow<Podcast?>
@@ -25,14 +24,36 @@ interface PodcastDao {
     @Query("SELECT * FROM podcasts WHERE feedUrl = :feedUrl")
     suspend fun getByFeedUrl(feedUrl: String): Podcast?
 
-    @Query("SELECT feedUrl FROM podcasts")
-    fun observeFeedUrls(): Flow<List<String>>
+    @Query("SELECT feedUrl FROM podcasts WHERE subscribed = 1")
+    fun observeSubscribedFeedUrls(): Flow<List<String>>
+
+    @Query("UPDATE podcasts SET subscribed = :subscribed, openedAt = :now WHERE id = :id")
+    suspend fun setSubscribed(id: Long, subscribed: Boolean, now: Long)
+
+    /**
+     * Deletes unsubscribed podcasts not opened since [cutoff] that have nothing left in use: no
+     * episode queued, downloaded or downloading, and none started (so listening history survives).
+     */
+    @Query(
+        """DELETE FROM podcasts WHERE subscribed = 0 AND openedAt < :cutoff AND NOT EXISTS (
+        SELECT 1 FROM episodes e WHERE e.podcastId = podcasts.id AND (e.queuePosition IS NOT NULL
+        OR e.localPath IS NOT NULL OR e.downloadState IN ('QUEUED', 'DOWNLOADING')
+        OR e.played = 1 OR e.positionMs > 0 OR e.lastPlayedAt IS NOT NULL))""",
+    )
+    suspend fun deleteUnused(cutoff: Long)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(podcast: Podcast): Long
 
-    @Update
-    suspend fun update(podcast: Podcast)
+    /** Updates what the feed says, leaving the subscription alone. */
+    @Query(
+        """UPDATE podcasts SET title = :title, author = :author, artworkUrl = COALESCE(:artworkUrl, artworkUrl),
+        description = :description WHERE id = :id""",
+    )
+    suspend fun updateFeedInfo(id: Long, title: String, author: String?, artworkUrl: String?, description: String?)
+
+    @Query("UPDATE podcasts SET openedAt = :now WHERE id = :id")
+    suspend fun markOpened(id: Long, now: Long)
 
     @Query("DELETE FROM podcasts WHERE id = :id")
     suspend fun delete(id: Long)

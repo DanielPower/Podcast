@@ -2,11 +2,13 @@ package ca.danielpower.podcast.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,11 +19,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,60 +39,78 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.Podcast
 
+/**
+ * A podcast's page, subscribed or not. Opened from search, [podcast] is null until its feed has
+ * loaded, and [preview] fills the header meanwhile.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PodcastDetailScreen(
     podcast: Podcast?,
+    preview: DirectoryResult?,
     episodes: List<EpisodeWithPodcast>,
+    error: String?,
+    onRetry: () -> Unit,
+    onSubscribe: () -> Unit,
+    onUnsubscribe: () -> Unit,
     onAddToQueue: (Long) -> Unit,
     onOpenEpisode: (Long) -> Unit,
-    onUnsubscribe: () -> Unit,
     onBack: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     var confirmUnsubscribe by remember { mutableStateOf(false) }
+    val title = podcast?.title ?: preview?.title.orEmpty()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(podcast?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Unsubscribe") },
-                            onClick = {
-                                menuOpen = false
-                                confirmUnsubscribe = true
-                            },
-                        )
                     }
                 },
             )
         },
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
-            if (podcast != null) {
-                item { Header(podcast) }
+            if (podcast != null || preview != null) {
+                item {
+                    Header(
+                        title = title,
+                        author = podcast?.author ?: preview?.author,
+                        artworkUrl = podcast?.artworkUrl ?: preview?.artworkUrl,
+                        description = podcast?.description,
+                        subscribed = podcast?.subscribed,
+                        onSubscribe = onSubscribe,
+                        onUnsubscribe = { confirmUnsubscribe = true },
+                    )
+                }
             }
-            items(episodes, key = { it.episode.id }) { item ->
-                EpisodeRow(
-                    item,
-                    onClick = { onOpenEpisode(item.episode.id) },
-                    onAddToQueue = { onAddToQueue(item.episode.id) },
-                )
-                HorizontalDivider(Modifier.padding(horizontal = SideMargin), color = MaterialTheme.colorScheme.outlineVariant)
+            when {
+                podcast != null -> items(episodes, key = { it.episode.id }) { item ->
+                    EpisodeRow(
+                        item,
+                        onClick = { onOpenEpisode(item.episode.id) },
+                        onAddToQueue = { onAddToQueue(item.episode.id) },
+                    )
+                    HorizontalDivider(Modifier.padding(horizontal = SideMargin), color = MaterialTheme.colorScheme.outlineVariant)
+                }
+                error != null -> item {
+                    Column(Modifier.fillMaxWidth().padding(SideMargin), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(error, color = MaterialTheme.colorScheme.error)
+                        SecondaryButton(onClick = onRetry) { Text("Try again") }
+                    }
+                }
+                else -> item {
+                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.tertiary)
+                    }
+                }
             }
         }
     }
@@ -116,28 +133,53 @@ fun PodcastDetailScreen(
     }
 }
 
+/** [subscribed] is null while the feed is loading, which disables the button. */
 @Composable
-private fun Header(podcast: Podcast) {
-    Row(Modifier.padding(start = SideMargin, end = SideMargin, top = 8.dp, bottom = 16.dp)) {
-        Artwork(podcast.artworkUrl, 96.dp)
+private fun Header(
+    title: String,
+    author: String?,
+    artworkUrl: String?,
+    description: String?,
+    subscribed: Boolean?,
+    onSubscribe: () -> Unit,
+    onUnsubscribe: () -> Unit,
+) {
+    // The title, author and button fill the artwork's height, with the button level with its bottom.
+    Row(Modifier.padding(start = SideMargin, end = SideMargin, top = 8.dp)) {
+        Artwork(artworkUrl, HeaderArtSize)
         Spacer(Modifier.width(16.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(podcast.title, style = MaterialTheme.typography.titleLarge)
-            podcast.author?.let {
-                Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+        Column(Modifier.height(HeaderArtSize), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                author?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            podcast.description?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+            // Subscribing is easily undone, so it takes one tap; unsubscribing asks first.
+            if (subscribed == true) {
+                SecondaryButton(onClick = onUnsubscribe) { Text("Unsubscribe") }
+            } else {
+                PrimaryButton(onClick = onSubscribe, enabled = subscribed != null) { Text("Subscribe") }
             }
         }
     }
+    description?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            rememberFeedText(it),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(start = SideMargin, end = SideMargin, top = 12.dp),
+        )
+    }
+    Spacer(Modifier.height(16.dp))
     SectionLabel("Episodes", Modifier.padding(horizontal = SideMargin, vertical = 6.dp))
 }
 
@@ -185,3 +227,5 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
         }
     }
 }
+
+private val HeaderArtSize = 120.dp

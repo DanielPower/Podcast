@@ -14,10 +14,13 @@ import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.Podcast
 import ca.danielpower.podcast.data.PodcastRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -111,20 +114,57 @@ class SearchViewModel(private val repository: PodcastRepository) : ViewModel() {
     }
 }
 
+/**
+ * A podcast's page, opened from the subscriptions by id or from search by feed URL. From search, the
+ * feed is loaded first (unsubscribed), and the directory's title and artwork show meanwhile.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
 class PodcastDetailViewModel(
     private val repository: PodcastRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
-    private val podcastId: Long = checkNotNull(savedStateHandle.get<Long>("podcastId"))
+    private val feedUrl: String? = savedStateHandle["feedUrl"]
+    private val podcastId = MutableStateFlow(savedStateHandle.get<Long>("podcastId"))
 
-    val podcast: StateFlow<Podcast?> = repository.observePodcast(podcastId).stateIn(this, null)
-    val episodes: StateFlow<List<EpisodeWithPodcast>> = repository.observeEpisodes(podcastId).stateIn(this, emptyList())
+    val preview: DirectoryResult? = feedUrl?.let {
+        DirectoryResult(
+            title = savedStateHandle["title"] ?: "",
+            author = savedStateHandle["author"],
+            feedUrl = it,
+            artworkUrl = savedStateHandle["artworkUrl"],
+        )
+    }
+
+    val podcast: StateFlow<Podcast?> = podcastId
+        .flatMapLatest { id -> id?.let(repository::observePodcast) ?: flowOf(null) }
+        .stateIn(this, null)
+    val episodes: StateFlow<List<EpisodeWithPodcast>> = podcastId
+        .flatMapLatest { id -> id?.let(repository::observeEpisodes) ?: flowOf(emptyList()) }
+        .stateIn(this, emptyList())
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
+
+    init {
+        load()
+    }
+
+    /** Loads the feed of a podcast opened from search. */
+    fun load() {
+        val url = feedUrl ?: return
+        _error.value = null
+        viewModelScope.launch {
+            try {
+                podcastId.value = repository.open(url)
+            } catch (e: Exception) {
+                _error.value = "Couldn't load this podcast: ${e.message}"
+            }
+        }
+    }
 
     fun addToQueue(episodeId: Long) = viewModelScope.launch { repository.addToQueue(episodeId) }
-    fun unsubscribe(onDone: () -> Unit) = viewModelScope.launch {
-        repository.unsubscribe(podcastId)
-        onDone()
-    }
+    fun subscribe() = viewModelScope.launch { podcastId.value?.let { repository.subscribe(it) } }
+    fun unsubscribe() = viewModelScope.launch { podcastId.value?.let { repository.unsubscribe(it) } }
 }
 
 class EpisodeViewModel(

@@ -3,6 +3,7 @@ package ca.danielpower.podcast
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -253,6 +254,15 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         onSearch = vm::search,
                         onClear = vm::clearSearch,
                         onSubscribe = vm::subscribe,
+                        onOpen = { result ->
+                            val args = listOf(
+                                "feedUrl" to result.feedUrl,
+                                "title" to result.title,
+                                "author" to result.author,
+                                "artworkUrl" to result.artworkUrl,
+                            ).mapNotNull { (name, value) -> value?.let { "$name=${Uri.encode(it)}" } }
+                            navController.navigate("podcast?" + args.joinToString("&"))
+                        },
                         onBack = { navController.popBackStack() },
                     )
                 }
@@ -261,19 +271,19 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                 "podcast/{podcastId}",
                 arguments = listOf(navArgument("podcastId") { type = NavType.LongType }),
             ) {
-                TabPage(chromeHeight) {
-                    val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
-                    val podcast by vm.podcast.collectAsStateWithLifecycle()
-                    val episodes by vm.episodes.collectAsStateWithLifecycle()
-                    PodcastDetailScreen(
-                        podcast = podcast,
-                        episodes = episodes,
-                        onAddToQueue = vm::addToQueue,
-                        onOpenEpisode = openEpisode,
-                        onUnsubscribe = { vm.unsubscribe { navController.popBackStack() } },
-                        onBack = { navController.popBackStack() },
-                    )
-                }
+                TabPage(chromeHeight) { PodcastPage(openEpisode, onBack = { navController.popBackStack() }) }
+            }
+            // From search: the feed isn't necessarily subscribed to, or even loaded yet.
+            composable(
+                PODCAST_FROM_SEARCH_ROUTE,
+                arguments = listOf("feedUrl", "title", "author", "artworkUrl").map { name ->
+                    navArgument(name) {
+                        type = NavType.StringType
+                        nullable = true
+                    }
+                },
+            ) {
+                TabPage(chromeHeight) { PodcastPage(openEpisode, onBack = { navController.popBackStack() }) }
             }
             composable(
                 EPISODE_ROUTE,
@@ -314,10 +324,34 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
     }
 }
 
+@Composable
+private fun PodcastPage(openEpisode: (Long) -> Unit, onBack: () -> Unit) {
+    val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
+    val podcast by vm.podcast.collectAsStateWithLifecycle()
+    val episodes by vm.episodes.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
+    PodcastDetailScreen(
+        podcast = podcast,
+        preview = vm.preview,
+        episodes = episodes,
+        error = error,
+        onRetry = vm::load,
+        onSubscribe = vm::subscribe,
+        onUnsubscribe = vm::unsubscribe,
+        onAddToQueue = vm::addToQueue,
+        onOpenEpisode = openEpisode,
+        onBack = onBack,
+    )
+}
+
 private const val EPISODE_ROUTE = "episode/{episodeId}"
+private const val PODCAST_FROM_SEARCH_ROUTE = "podcast?feedUrl={feedUrl}&title={title}&author={author}&artworkUrl={artworkUrl}"
+
+/** A podcast's page, opened from the subscriptions or from search. */
+private fun isPodcastRoute(route: String) = route.startsWith("podcast/") || route.startsWith("podcast?")
 
 private fun tabFor(route: String): Tab = when {
-    route == SEARCH_ROUTE || route.startsWith("podcast/") -> Tab.Podcasts
+    route == SEARCH_ROUTE || isPodcastRoute(route) -> Tab.Podcasts
     else -> Tab.entries.firstOrNull { it.route == route } ?: Tab.Queue
 }
 private const val SETTINGS_ROUTE = "settings"
@@ -330,7 +364,7 @@ private const val PAGE_MS = 300
 private fun NavBackStackEntry.isPage(): Boolean =
     destination.route.let {
         it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it == HISTORY_ROUTE || it == EPISODE_ROUTE ||
-            it?.startsWith("podcast/") == true
+            it?.let(::isPodcastRoute) == true
     }
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.opensPage() = targetState.isPage()

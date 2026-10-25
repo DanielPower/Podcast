@@ -18,6 +18,13 @@ data class Podcast(
     val author: String?,
     val artworkUrl: String?,
     val description: String?,
+    /**
+     * False for a podcast that was opened from search, or unsubscribed from. Its episodes can still be
+     * queued, but it isn't shown with the subscriptions or refreshed.
+     */
+    @ColumnInfo(defaultValue = "1") val subscribed: Boolean = true,
+    /** When an unsubscribed podcast's page was last opened. It's kept for a day after that. */
+    @ColumnInfo(defaultValue = "0") val openedAt: Long = 0,
 )
 
 enum class DownloadState { NONE, QUEUED, DOWNLOADING, DOWNLOADED, FAILED }
