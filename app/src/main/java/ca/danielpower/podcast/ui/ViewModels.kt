@@ -192,7 +192,7 @@ class PodcastsViewModel(private val repository: PodcastRepository) : ViewModel()
 
     private companion object {
         const val MIN_SEARCH_LENGTH = 2
-        const val SEARCH_DELAY_MS = 400L
+        const val SEARCH_DELAY_MS = 200L
     }
 }
 
