@@ -13,13 +13,15 @@ android {
         applicationId = "ca.danielpower.podcast"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI's release workflow passes its run number, so each build on main installs over the last.
+        val buildNumber = System.getenv("VERSION_CODE")?.toInt() ?: 1
+        versionCode = buildNumber
+        versionName = "0.1.$buildNumber"
     }
 
     // A fixed debug key, committed on purpose: CI would otherwise make a new one each run, and a
     // debug APK signed with a different key can't be installed over the last one. Debug keys aren't
-    // secret; a real release key would come from CI secrets instead.
+    // secret; the release key comes from CI secrets instead.
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug.keystore")
@@ -27,12 +29,28 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        val releaseStore = System.getenv("RELEASE_KEYSTORE_FILE")
+        if (releaseStore != null) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            // A separate app id so PR builds install beside the release build instead of over it.
+            applicationIdSuffix = ".debug"
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Without the release key (a local build) the APK comes out unsigned.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
