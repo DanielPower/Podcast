@@ -60,6 +60,7 @@ fun QueueScreen(
     playingChapters: List<Chapter>,
     onOpen: (Long) -> Unit,
     onReorder: (List<Long>) -> Unit,
+    onSwitchTo: (Long) -> Unit,
     onDismiss: (Long) -> Unit,
     onRetryDownload: (Long) -> Unit,
     onOpenHistory: () -> Unit,
@@ -87,7 +88,7 @@ fun QueueScreen(
                 queue.isEmpty() -> EmptyMessage(
                     "Your queue is empty.\nNew episodes from your podcasts are added here once they've downloaded.",
                 )
-                else -> QueueList(queue, downloadProgress, playerState, playingChapters, onOpen, onReorder, onDismiss, onRetryDownload)
+                else -> QueueList(queue, downloadProgress, playerState, playingChapters, onOpen, onReorder, onSwitchTo, onDismiss, onRetryDownload)
             }
         }
     }
@@ -110,6 +111,7 @@ private fun QueueList(
     playingChapters: List<Chapter>,
     onOpen: (Long) -> Unit,
     onReorder: (List<Long>) -> Unit,
+    onSwitchTo: (Long) -> Unit,
     onDismiss: (Long) -> Unit,
     onRetryDownload: (Long) -> Unit,
 ) {
@@ -168,7 +170,17 @@ private fun QueueList(
                                             onDragStarted = { dragging = true },
                                             onDragStopped = {
                                                 dragging = false
-                                                onReorder(items.map { it.episode.id })
+                                                val order = items.map { it.episode.id }
+                                                onReorder(order)
+                                                // A downloaded episode dropped above the playing one
+                                                // takes over from it.
+                                                val playing = playerState.episodeId
+                                                val id = item.episode.id
+                                                if (playing != null && id != playing && item.isPlayable &&
+                                                    playing in order && order.indexOf(id) < order.indexOf(playing)
+                                                ) {
+                                                    onSwitchTo(id)
+                                                }
                                             },
                                         ),
                                     ) {

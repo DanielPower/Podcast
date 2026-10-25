@@ -15,21 +15,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,7 +44,6 @@ import ca.danielpower.podcast.data.Podcast
  * A podcast's page, subscribed or not. Opened from search, [podcast] is null until its feed has
  * loaded, and [preview] fills the header meanwhile.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PodcastDetailScreen(
     podcast: Podcast?,
@@ -65,19 +60,9 @@ fun PodcastDetailScreen(
     var confirmUnsubscribe by remember { mutableStateOf(false) }
     val title = podcast?.title ?: preview?.title.orEmpty()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        PageHeader(onBack) { PageTitle(title) }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             if (podcast != null || preview != null) {
                 item {
                     Header(

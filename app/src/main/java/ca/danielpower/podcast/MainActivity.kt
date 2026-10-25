@@ -203,6 +203,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         playingChapters = playingChapters,
                         onOpen = openEpisode,
                         onReorder = vm::reorder,
+                        onSwitchTo = { id -> connection?.switchTo(id) },
                         onDismiss = vm::dismiss,
                         onRetryDownload = vm::retryDownload,
                         onOpenHistory = { navController.navigate(HISTORY_ROUTE) { launchSingleTop = true } },

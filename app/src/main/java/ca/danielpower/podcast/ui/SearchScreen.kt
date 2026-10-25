@@ -15,19 +15,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,7 +45,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import ca.danielpower.podcast.data.DirectoryResult
 import kotlinx.coroutines.flow.first
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     state: SearchState,
@@ -76,54 +71,44 @@ fun SearchScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                title = {
-                    TextField(
-                        value = state.query,
-                        onValueChange = onQueryChange,
-                        placeholder = { Text("Search for a podcast") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
+    Column(Modifier.fillMaxSize()) {
+        PageHeader(onBack) {
+            TextField(
+                value = state.query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search for a podcast") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = {
+                    keyboard?.hide()
+                    onSearch()
+                }),
+                trailingIcon = {
+                    Row {
+                        if (state.query.isNotEmpty()) {
+                            IconButton(onClick = {
+                                onClear()
+                                focus.requestFocus()
+                            }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            }
+                        }
+                        IconButton(onClick = {
                             keyboard?.hide()
                             onSearch()
-                        }),
-                        trailingIcon = {
-                            Row {
-                                if (state.query.isNotEmpty()) {
-                                    IconButton(onClick = {
-                                        onClear()
-                                        focus.requestFocus()
-                                    }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear search")
-                                    }
-                                }
-                                IconButton(onClick = {
-                                    keyboard?.hide()
-                                    onSearch()
-                                }) {
-                                    Icon(Icons.Default.Search, contentDescription = "Search")
-                                }
-                            }
-                        },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                        ),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
-                    )
+                        }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                    }
                 },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                ),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             if (state.loading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             } else {

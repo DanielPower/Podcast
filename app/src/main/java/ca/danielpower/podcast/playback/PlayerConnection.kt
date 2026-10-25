@@ -48,6 +48,15 @@ class PlayerConnection(context: Context) {
         player.play()
     }
 
+    /** Loads the episode in place of the current one, playing only if the player was playing. */
+    fun switchTo(episodeId: Long) {
+        val player = controller ?: return
+        val playWhenReady = player.playWhenReady
+        player.setMediaItem(MediaItem.Builder().setMediaId(episodeId.toString()).build())
+        player.prepare()
+        player.playWhenReady = playWhenReady
+    }
+
     fun release() {
         released = true
         controller = null

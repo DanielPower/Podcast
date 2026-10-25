@@ -74,46 +74,48 @@ fun StatisticsScreen(
     onNext: () -> Unit,
 ) {
     var metric by rememberSaveable { mutableStateOf(StatsMetric.LISTENED) }
-    LazyColumn(Modifier.fillMaxSize()) {
-        item { ScreenHeader("Statistics", Icons.Default.BarChart) }
-        if (ui == null) return@LazyColumn
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = SideMargin, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                for (range in StatsRange.entries) {
-                    PaperChip(selected = range == ui.period.range, onClick = { onRange(range) }, label = range.label)
+    Column(Modifier.fillMaxSize()) {
+        ScreenHeader("Statistics", Icons.Default.BarChart)
+        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            if (ui == null) return@LazyColumn
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = SideMargin, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (range in StatsRange.entries) {
+                        PaperChip(selected = range == ui.period.range, onClick = { onRange(range) }, label = range.label)
+                    }
                 }
             }
-        }
-        item { PeriodStepper(ui, onPrevious, onNext) }
-        item { Tiles(ui, metric, onSelect = { metric = it }) }
-        item {
-            SectionLabel(
-                "By podcast",
-                Modifier.padding(start = SideMargin, end = SideMargin, top = 20.dp, bottom = 6.dp),
-                trailing = metric.breakdown,
-            )
-        }
-        val rows = ui.byPodcast.filter { metric.of(it) > 0 }.sortedByDescending { metric.of(it) }
-        if (rows.isEmpty()) {
+            item { PeriodStepper(ui, onPrevious, onNext) }
+            item { Tiles(ui, metric, onSelect = { metric = it }) }
             item {
-                Text(
-                    emptyText(ui, metric),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = SideMargin, vertical = 24.dp),
+                SectionLabel(
+                    "By podcast",
+                    Modifier.padding(start = SideMargin, end = SideMargin, top = 20.dp, bottom = 6.dp),
+                    trailing = metric.breakdown,
                 )
             }
-        } else {
-            val max = metric.of(rows.first()).toFloat()
-            items(rows, key = { it.podcastId }) { stats ->
-                BreakdownRow(stats, metric.format(metric.of(stats)), metric.of(stats) / max)
+            val rows = ui.byPodcast.filter { metric.of(it) > 0 }.sortedByDescending { metric.of(it) }
+            if (rows.isEmpty()) {
+                item {
+                    Text(
+                        emptyText(ui, metric),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = SideMargin, vertical = 24.dp),
+                    )
+                }
+            } else {
+                val max = metric.of(rows.first()).toFloat()
+                items(rows, key = { it.podcastId }) { stats ->
+                    BreakdownRow(stats, metric.format(metric.of(stats)), metric.of(stats) / max)
+                }
             }
+            item { Spacer(Modifier.height(16.dp)) }
         }
-        item { Spacer(Modifier.height(16.dp)) }
     }
 }
 
