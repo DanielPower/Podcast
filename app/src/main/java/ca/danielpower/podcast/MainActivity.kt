@@ -63,6 +63,8 @@ import ca.danielpower.podcast.playback.rememberPlayerUiState
 import ca.danielpower.podcast.ui.AppViewModelFactory
 import ca.danielpower.podcast.ui.EpisodeScreen
 import ca.danielpower.podcast.ui.EpisodeViewModel
+import ca.danielpower.podcast.ui.HistoryScreen
+import ca.danielpower.podcast.ui.HistoryViewModel
 import ca.danielpower.podcast.ui.MiniPlayer
 import ca.danielpower.podcast.ui.PaperNavBar
 import ca.danielpower.podcast.ui.PaperNavItem
@@ -195,7 +197,20 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                         onReorder = vm::reorder,
                         onDismiss = vm::dismiss,
                         onRetryDownload = vm::retryDownload,
+                        onOpenHistory = { navController.navigate(HISTORY_ROUTE) { launchSingleTop = true } },
                         onOpenSettings = openSettings,
+                    )
+                }
+            }
+            composable(HISTORY_ROUTE) {
+                TabPage(chromeHeight) {
+                    val vm: HistoryViewModel = viewModel(factory = AppViewModelFactory)
+                    val history by vm.history.collectAsStateWithLifecycle()
+                    HistoryScreen(
+                        history = history,
+                        onOpen = openEpisode,
+                        onAddToQueue = vm::addToQueue,
+                        onBack = { navController.popBackStack() },
                     )
                 }
             }
@@ -341,13 +356,15 @@ private fun tabFor(route: String): Tab = when {
 }
 private const val SETTINGS_ROUTE = "settings"
 private const val SEARCH_ROUTE = "search"
+private const val HISTORY_ROUTE = "history"
 private const val FADE_MS = 200
 private const val PAGE_MS = 300
 
 /** A page opened on top of a tab, as opposed to a tab itself. */
 private fun NavBackStackEntry.isPage(): Boolean =
     destination.route.let {
-        it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it == EPISODE_ROUTE || it?.let(::isPodcastRoute) == true
+        it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it == HISTORY_ROUTE || it == EPISODE_ROUTE ||
+            it?.let(::isPodcastRoute) == true
     }
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.opensPage() = targetState.isPage()

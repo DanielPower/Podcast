@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -59,6 +60,7 @@ fun QueueScreen(
     onReorder: (List<Long>) -> Unit,
     onDismiss: (Long) -> Unit,
     onRetryDownload: (Long) -> Unit,
+    onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
@@ -69,6 +71,9 @@ fun QueueScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            IconButton(onClick = onOpenHistory) {
+                Icon(Icons.Outlined.History, contentDescription = "History")
             }
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Outlined.Settings, contentDescription = "Settings")

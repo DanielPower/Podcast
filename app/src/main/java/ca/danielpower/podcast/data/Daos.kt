@@ -37,7 +37,8 @@ interface PodcastDao {
     @Query(
         """DELETE FROM podcasts WHERE subscribed = 0 AND openedAt < :cutoff AND NOT EXISTS (
         SELECT 1 FROM episodes e WHERE e.podcastId = podcasts.id AND (e.queuePosition IS NOT NULL
-        OR e.localPath IS NOT NULL OR e.downloadState IN ('QUEUED', 'DOWNLOADING') OR e.played = 1 OR e.positionMs > 0))""",
+        OR e.localPath IS NOT NULL OR e.downloadState IN ('QUEUED', 'DOWNLOADING')
+        OR e.played = 1 OR e.positionMs > 0 OR e.lastPlayedAt IS NOT NULL))""",
     )
     suspend fun deleteUnused(cutoff: Long)
 
@@ -70,6 +71,10 @@ abstract class EpisodeDao {
 
     @Query("$EPISODE_WITH_PODCAST WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
     abstract suspend fun getQueue(): List<EpisodeWithPodcast>
+
+    /** Every episode that has been played, most recently played first. */
+    @Query("$EPISODE_WITH_PODCAST WHERE e.lastPlayedAt IS NOT NULL ORDER BY e.lastPlayedAt DESC")
+    abstract fun observeHistory(): Flow<List<EpisodeWithPodcast>>
 
     @Query("$EPISODE_WITH_PODCAST WHERE e.podcastId = :podcastId ORDER BY e.publishedAt DESC")
     abstract fun observeForPodcast(podcastId: Long): Flow<List<EpisodeWithPodcast>>
@@ -119,6 +124,9 @@ abstract class EpisodeDao {
 
     @Query("UPDATE episodes SET positionMs = :positionMs WHERE id = :id")
     abstract suspend fun setPosition(id: Long, positionMs: Long)
+
+    @Query("UPDATE episodes SET lastPlayedAt = :now WHERE id = :id")
+    abstract suspend fun setLastPlayed(id: Long, now: Long)
 
     @Query("UPDATE episodes SET played = 1, positionMs = 0 WHERE id = :id")
     abstract suspend fun markPlayed(id: Long)
