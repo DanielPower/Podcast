@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionError
 import ca.danielpower.podcast.MainActivity
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.repository
@@ -210,7 +211,7 @@ class PlaybackService : MediaLibraryService() {
             if (episode != null) {
                 LibraryResult.ofItem(episode.toMediaItem(), null)
             } else {
-                LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
             }
         }
 
