@@ -53,11 +53,13 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -172,7 +175,10 @@ fun EpisodeScreen(
                             if (isCurrent) player?.seekTo(chapter.startMs) else onPlay(chapter.startMs)
                         },
                     )
-                    EpisodeTab.Notes -> Notes(item.episode.description)
+                    EpisodeTab.Notes -> Notes(
+                        description = item.episode.description,
+                        onSeek = { ms -> if (isCurrent) player?.seekTo(ms) else onPlay(ms) },
+                    )
                     EpisodeTab.Details -> Details(item, queueIndex)
                 }
             }
@@ -369,18 +375,30 @@ private fun ChapterList(chapters: List<Chapter>, positionMs: (() -> Long)?, onCh
 }
 
 @Composable
-private fun Notes(description: String?) {
+private fun Notes(description: String?, onSeek: (Long) -> Unit) {
     if (description.isNullOrBlank()) {
         EmptyMessage("This episode has no show notes.")
         return
     }
-    val text = rememberFeedText(description) ?: return
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        lineHeight = 22.sp,
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = SideMargin, vertical = 4.dp),
-    )
+    val text = rememberFeedText(description, timestamps = true) ?: return
+    // Timestamps in the notes are links that seek; other links open as usual.
+    val outer = LocalUriHandler.current
+    val currentOnSeek by rememberUpdatedState(onSeek)
+    val uriHandler = remember(outer) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                seekUriMs(uri)?.let(currentOnSeek) ?: outer.openUri(uri)
+            }
+        }
+    }
+    CompositionLocalProvider(LocalUriHandler provides uriHandler) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            lineHeight = 22.sp,
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = SideMargin, vertical = 4.dp),
+        )
+    }
 }
 
 @Composable

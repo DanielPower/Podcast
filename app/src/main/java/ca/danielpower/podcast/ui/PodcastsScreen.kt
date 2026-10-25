@@ -23,9 +23,12 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -43,37 +46,53 @@ fun PodcastsScreen(
     podcasts: List<Podcast>?,
     onOpen: (Long) -> Unit,
     onSearch: () -> Unit,
+    refreshing: Boolean,
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
+    snackbar: SnackbarHostState,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        ScreenHeader("Podcasts", Icons.Default.GridView) {
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Default.Refresh, contentDescription = "Check for new episodes")
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Outlined.Settings, contentDescription = "Settings")
-            }
-        }
-        SearchField(onSearch)
-        when {
-            podcasts == null -> Unit
-            podcasts.isEmpty() -> EmptyMessage("You're not subscribed to any podcasts yet.\nFind one with the search above.")
-            else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 100.dp),
-                contentPadding = PaddingValues(start = SideMargin, end = SideMargin, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    SectionLabel("Subscribed · ${podcasts.size}", Modifier.padding(top = 14.dp))
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            ScreenHeader("Podcasts", Icons.Default.GridView) {
+                if (refreshing) {
+                    // Same footprint as the button it replaces, so the header doesn't shift.
+                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp),
+                            color = MaterialTheme.colorScheme.tertiary,
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                } else {
+                    IconButton(onClick = onRefresh) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Check for new episodes")
+                    }
                 }
-                items(podcasts, key = { it.id }) { podcast ->
-                    PodcastTile(podcast, onClick = { onOpen(podcast.id) })
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Outlined.Settings, contentDescription = "Settings")
                 }
             }
+            SearchField(onSearch)
+            when {
+                podcasts == null -> Unit
+                podcasts.isEmpty() -> EmptyMessage("You're not subscribed to any podcasts yet.\nFind one with the search above.")
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 100.dp),
+                    contentPadding = PaddingValues(start = SideMargin, end = SideMargin, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        SectionLabel("Subscribed · ${podcasts.size}", Modifier.padding(top = 14.dp))
+                    }
+                    items(podcasts, key = { it.id }) { podcast ->
+                        PodcastTile(podcast, onClick = { onOpen(podcast.id) })
+                    }
+                }
+            }
         }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 }
 

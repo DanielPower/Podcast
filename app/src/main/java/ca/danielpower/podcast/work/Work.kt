@@ -22,6 +22,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /** Any network, or only an unmetered one (Wi-Fi) when that setting is on. */
@@ -41,21 +42,36 @@ object Refresh {
             .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
-    fun now(context: Context) {
-        val request = OneTimeWorkRequestBuilder<RefreshWorker>()
-            .setConstraints(networkConstraints(context))
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, request)
+    const val KEY_NEW_EPISODES = "newEpisodes"
+    const val KEY_FAILED_FEEDS = "failedFeeds"
+    const val KEY_FEEDS = "feeds"
+
+    /**
+     * Checks for new episodes right away, on any network: feeds are small, and new episodes'
+     * downloads still wait for Wi-Fi if that's set. Returns the work's id, to follow with [observe].
+     */
+    fun now(context: Context): UUID {
+        val request = OneTimeWorkRequestBuilder<RefreshWorker>().build()
+        WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.REPLACE, request)
+        return request.id
     }
+
+    fun observe(context: Context, id: UUID) = WorkManager.getInstance(context).getWorkInfoByIdFlow(id)
 }
 
 class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val repository = applicationContext.repository
-        repository.refreshAll()
+        val result = repository.refreshAll()
         repository.deleteExpiredDownloads()
         repository.deleteUnusedPodcasts()
-        return Result.success()
+        return Result.success(
+            workDataOf(
+                Refresh.KEY_NEW_EPISODES to result.newEpisodes,
+                Refresh.KEY_FAILED_FEEDS to result.failedFeeds,
+                Refresh.KEY_FEEDS to result.feeds,
+            ),
+        )
     }
 }
 
