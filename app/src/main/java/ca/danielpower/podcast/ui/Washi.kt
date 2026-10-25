@@ -137,15 +137,24 @@ fun SecondaryButton(
     )
 }
 
-/** A choice: ink when selected, an ink outline when not. */
+/**
+ * A choice: ink when selected, an ink outline when not. When not [enabled] it's greyed out but still
+ * takes taps, so the screen can explain why it's unavailable.
+ */
 @Composable
-fun PaperChip(selected: Boolean, onClick: () -> Unit, label: String, modifier: Modifier = Modifier) {
+fun PaperChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
     val colors = MaterialTheme.colorScheme
     Box(
         modifier
             .height(34.dp)
             .clip(PaperShape)
-            .border(1.dp, colors.outline, PaperShape)
+            .border(1.dp, if (enabled) colors.outline else colors.outlineVariant, PaperShape)
             .background(if (selected) colors.onSurface else Color.Transparent)
             .clickable(role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 14.dp),
@@ -155,7 +164,11 @@ fun PaperChip(selected: Boolean, onClick: () -> Unit, label: String, modifier: M
             label,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) colors.surface else colors.onSurface,
+            color = when {
+                selected -> colors.surface
+                enabled -> colors.onSurface
+                else -> colors.onSurfaceVariant.copy(alpha = 0.6f)
+            },
         )
     }
 }
