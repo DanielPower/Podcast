@@ -131,6 +131,20 @@ abstract class EpisodeDao {
     @Query("UPDATE episodes SET positionMs = :positionMs WHERE id = :id")
     abstract suspend fun setPosition(id: Long, positionMs: Long)
 
+    /** Stores the length the player found, when the feed's is missing or more than a second off. */
+    @Query(
+        """UPDATE episodes SET durationMs = :durationMs
+        WHERE id = :id AND (durationMs IS NULL OR ABS(durationMs - :durationMs) > 1000)""",
+    )
+    abstract suspend fun setDuration(id: Long, durationMs: Long)
+
+    /** A download that was stopped part way goes back to waiting, unless it was cancelled meanwhile. */
+    @Query("UPDATE episodes SET downloadState = 'QUEUED' WHERE id = :id AND downloadState = 'DOWNLOADING'")
+    abstract suspend fun markDownloadWaiting(id: Long)
+
+    @Query("SELECT id FROM episodes WHERE downloadState = 'QUEUED'")
+    abstract suspend fun getWaitingDownloads(): List<Long>
+
     @Query("UPDATE episodes SET lastPlayedAt = :now WHERE id = :id")
     abstract suspend fun setLastPlayed(id: Long, now: Long)
 
@@ -163,14 +177,25 @@ abstract class EpisodeDao {
     @Query("$EPISODE_WITH_PODCAST WHERE e.id = :id")
     abstract fun observeWithPodcast(id: Long): Flow<EpisodeWithPodcast?>
 
-    /** Fills in metadata that older versions of the app didn't store, for episodes already known. */
+    /**
+     * Updates an episode already known with what the feed says now, so corrections (a new audio URL,
+     * a fixed title) are picked up. The feed's duration is only taken for episodes never played:
+     * once one has been, the player has stored its real length.
+     */
     @Query(
-        """UPDATE episodes SET link = :link, seasonNumber = :seasonNumber, episodeNumber = :episodeNumber,
+        """UPDATE episodes SET title = :title, audioUrl = :audioUrl,
+        publishedAt = CASE WHEN :publishedAt > 0 THEN :publishedAt ELSE publishedAt END,
+        durationMs = CASE WHEN lastPlayedAt IS NULL THEN COALESCE(:durationMs, durationMs) ELSE durationMs END,
+        link = :link, seasonNumber = :seasonNumber, episodeNumber = :episodeNumber,
         chaptersUrl = :chaptersUrl, description = :description WHERE podcastId = :podcastId AND guid = :guid""",
     )
     abstract suspend fun updateMetadata(
         podcastId: Long,
         guid: String,
+        title: String,
+        audioUrl: String,
+        publishedAt: Long,
+        durationMs: Long?,
         link: String?,
         seasonNumber: Int?,
         episodeNumber: Int?,
@@ -184,6 +209,10 @@ abstract class EpisodeDao {
             updateMetadata(
                 podcastId,
                 item.guid,
+                item.title,
+                item.audioUrl,
+                item.publishedAt,
+                item.durationMs,
                 item.link,
                 item.seasonNumber,
                 item.episodeNumber,

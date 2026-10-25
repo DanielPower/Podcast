@@ -28,7 +28,9 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChangedBy
@@ -51,6 +53,15 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var player: Player
     private var session: MediaLibrarySession? = null
     private val scope = MainScope()
+
+    /**
+     * For saving the position and listening time. Never cancelled, so the last save, made as the
+     * service is destroyed, still happens.
+     */
+    private val writes = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /** The episode whose real length has been stored, so it's stored once per episode loaded. */
+    private var durationSavedFor: Long? = null
 
     // Listening time for the statistics, counted from when playback last started or was last recorded.
     private var listeningEpisodeId: Long? = null
@@ -76,6 +87,7 @@ class PlaybackService : MediaLibraryService() {
         player = QueuePlayer(exoPlayer)
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) saveDuration()
                 if (playbackState == Player.STATE_ENDED) onEpisodeEnded()
             }
 
@@ -160,6 +172,7 @@ class PlaybackService : MediaLibraryService() {
             // The playing episode is still queued: leave it alone.
             current != null && queue.any { it.episode.id == current } -> Unit
             next == null -> {
+                saveCurrentPosition()
                 player.stop()
                 player.clearMediaItems()
             }
@@ -167,7 +180,10 @@ class PlaybackService : MediaLibraryService() {
             current == null -> load(next, playWhenReady = false)
             // The playing episode left the queue (finished, skipped or dismissed): move on,
             // carrying over whether we were playing.
-            else -> load(next, playWhenReady = player.playWhenReady)
+            else -> {
+                saveCurrentPosition()
+                load(next, playWhenReady = player.playWhenReady)
+            }
         }
     }
 
@@ -205,7 +221,7 @@ class PlaybackService : MediaLibraryService() {
         val listenedMs = SystemClock.elapsedRealtime() - listeningSince
         val skippedUs = silenceSkipper.skippedUs - listeningSkippedUs
         val savedMs = (skippedUs / 1000 / exoPlayer.playbackParameters.speed).toLong().coerceAtLeast(0)
-        scope.launch { repository.recordListening(id, listenedMs, savedMs) }
+        writes.launch { repository.recordListening(id, listenedMs, savedMs) }
         if (keepGoing) startListening() else listeningEpisodeId = null
     }
 
@@ -213,7 +229,15 @@ class PlaybackService : MediaLibraryService() {
         val id = currentEpisodeId ?: return
         if (player.playbackState == Player.STATE_ENDED) return
         val position = player.currentPosition
-        scope.launch { repository.savePosition(id, position) }
+        writes.launch { repository.savePosition(id, position) }
+    }
+
+    private fun saveDuration() {
+        val id = currentEpisodeId ?: return
+        val duration = player.duration
+        if (id == durationSavedFor || duration == C.TIME_UNSET || duration <= 0) return
+        durationSavedFor = id
+        writes.launch { repository.saveDuration(id, duration) }
     }
 
     /** Advertises "next" even though the player only holds one item, and maps it to a skip. */

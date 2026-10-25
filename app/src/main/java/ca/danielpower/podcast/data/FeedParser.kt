@@ -49,7 +49,8 @@ object FeedParser {
 
         var title: String? = null
         var author: String? = null
-        var artwork: String? = null
+        var itunesImage: String? = null
+        var rssImage: String? = null
         var description: String? = null
         val episodes = mutableListOf<ParsedEpisode>()
 
@@ -61,10 +62,10 @@ object FeedParser {
                 "itunes:author" -> if (author == null) author = readText(parser)
                 "description" -> if (description == null) description = readText(parser)
                 "itunes:summary" -> if (description == null) description = readText(parser)
-                "itunes:image" -> if (artwork == null) artwork = parser.getAttributeValue(null, "href")
+                "itunes:image" -> if (itunesImage == null) itunesImage = parser.getAttributeValue(null, "href")
                 "image" -> {
                     val url = readImageUrl(parser)
-                    if (artwork == null) artwork = url
+                    if (rssImage == null) rssImage = url
                 }
             }
         }
@@ -72,7 +73,8 @@ object FeedParser {
         return ParsedFeed(
             title = title?.trim().orEmpty().ifEmpty { "Untitled podcast" },
             author = author?.trim(),
-            artworkUrl = artwork,
+            // The RSS image is often a small thumbnail; the iTunes one is the full-size artwork.
+            artworkUrl = itunesImage?.trim()?.takeIf { it.isNotEmpty() } ?: rssImage,
             description = description?.trim(),
             episodes = episodes,
         )

@@ -26,7 +26,7 @@ class DirectorySearch(private val client: OkHttpClient) {
             .addQueryParameter("term", term)
             .build()
         client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("Search failed: HTTP ${response.code}")
+            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             val results = JSONObject(response.body!!.string()).getJSONArray("results")
             (0 until results.length()).mapNotNull { i ->
                 val item = results.getJSONObject(i)

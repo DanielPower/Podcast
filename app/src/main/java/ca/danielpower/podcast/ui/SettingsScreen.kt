@@ -101,7 +101,7 @@ fun SettingsScreen(
             ChoiceRow(
                 "Speed presets",
                 settings.speedPresets.joinToString("  ") { formatSpeed(it) },
-                hint = "Shown on Now Playing",
+                hint = "Shown in the speed popup",
             ) { picker = Picker.SPEED_PRESETS }
             SettingRow(
                 "Skip silence",
