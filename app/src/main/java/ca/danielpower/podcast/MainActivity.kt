@@ -10,21 +10,40 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,6 +57,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ca.danielpower.podcast.data.AppSettings
+import ca.danielpower.podcast.data.CardTransition
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.playback.PlayerConnection
 import ca.danielpower.podcast.playback.rememberPlayerUiState
@@ -45,13 +65,13 @@ import ca.danielpower.podcast.ui.AppViewModelFactory
 import ca.danielpower.podcast.ui.EpisodeScreen
 import ca.danielpower.podcast.ui.EpisodeViewModel
 import ca.danielpower.podcast.ui.MiniPlayer
+import ca.danielpower.podcast.ui.PaperNavBar
+import ca.danielpower.podcast.ui.PaperNavItem
 import ca.danielpower.podcast.ui.PodcastDetailScreen
 import ca.danielpower.podcast.ui.PodcastDetailViewModel
 import ca.danielpower.podcast.ui.PodcastTheme
 import ca.danielpower.podcast.ui.PodcastsScreen
 import ca.danielpower.podcast.ui.PodcastsViewModel
-import ca.danielpower.podcast.ui.PaperNavBar
-import ca.danielpower.podcast.ui.PaperNavItem
 import ca.danielpower.podcast.ui.QueueScreen
 import ca.danielpower.podcast.ui.QueueViewModel
 import ca.danielpower.podcast.ui.SearchScreen
@@ -124,126 +144,168 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
     val playingChapters by remember(playerState.episodeId) {
         playerState.episodeId?.let { context.repository.observeChapters(it) } ?: flowOf(emptyList<Chapter>())
     }.collectAsStateWithLifecycle(emptyList())
-    val backStack by navController.currentBackStackEntryAsState()
-    // The episode screen is full height (it has its own player controls at the bottom), and so is Settings.
-    val fullScreen = backStack?.destination?.route.let { it == EPISODE_ROUTE || it == SETTINGS_ROUTE }
     val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
     val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
+    val card = appSettings.cardTransition
 
-    Scaffold(
-        bottomBar = {
-            if (!fullScreen) {
-                Column {
-                    MiniPlayer(
-                        state = playerState,
-                        player = player,
-                        chapters = playingChapters,
-                        skipBackSeconds = appSettings.skipBackSeconds,
-                        skipForwardSeconds = appSettings.skipForwardSeconds,
-                        onClick = { playerState.episodeId?.let(openEpisode) },
-                    )
-                    BottomBar(navController)
-                }
-            }
-        },
-    ) { padding ->
+    // The mini player and tab bar sit underneath the screens. Tab screens stop above them; the
+    // episode screen and Settings are full height and opaque, so they cover them. That way nothing
+    // pops in or resizes while the episode screen opens or closes over the screen below.
+    var chromeHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { chromeHeight = with(density) { it.height.toDp() } },
+        ) {
+            MiniPlayer(
+                state = playerState,
+                player = player,
+                chapters = playingChapters,
+                skipBackSeconds = appSettings.skipBackSeconds,
+                skipForwardSeconds = appSettings.skipForwardSeconds,
+                onClick = { playerState.episodeId?.let(openEpisode) },
+            )
+            BottomBar(navController)
+        }
         NavHost(
             navController = navController,
             startDestination = Tab.Queue.route,
-            modifier = Modifier.padding(padding).consumeWindowInsets(padding),
+            modifier = Modifier.fillMaxSize(),
+            enterTransition = { fadeIn(tween(FADE_MS)) },
+            // The screen under the episode card stays put while the card covers or uncovers it.
+            exitTransition = {
+                if (targetState.destination.route == EPISODE_ROUTE) {
+                    fadeOut(tween(CARD_MS), targetAlpha = 1f)
+                } else {
+                    fadeOut(tween(FADE_MS))
+                }
+            },
+            popEnterTransition = {
+                if (initialState.destination.route == EPISODE_ROUTE) EnterTransition.None else fadeIn(tween(FADE_MS))
+            },
+            popExitTransition = { fadeOut(tween(FADE_MS)) },
         ) {
             composable(Tab.Queue.route) {
-                val vm: QueueViewModel = viewModel(factory = AppViewModelFactory)
-                val queue by vm.queue.collectAsStateWithLifecycle()
-                QueueScreen(
-                    queue = queue,
-                    playerState = playerState,
-                    playingChapters = playingChapters,
-                    onOpen = openEpisode,
-                    onReorder = vm::reorder,
-                    onDismiss = vm::dismiss,
-                    onRetryDownload = vm::retryDownload,
-                    onOpenSettings = openSettings,
-                )
+                TabPage(chromeHeight) {
+                    val vm: QueueViewModel = viewModel(factory = AppViewModelFactory)
+                    val queue by vm.queue.collectAsStateWithLifecycle()
+                    QueueScreen(
+                        queue = queue,
+                        playerState = playerState,
+                        playingChapters = playingChapters,
+                        onOpen = openEpisode,
+                        onReorder = vm::reorder,
+                        onDismiss = vm::dismiss,
+                        onRetryDownload = vm::retryDownload,
+                        onOpenSettings = openSettings,
+                    )
+                }
             }
             composable(Tab.Podcasts.route) {
-                val vm: PodcastsViewModel = viewModel(factory = AppViewModelFactory)
-                val podcasts by vm.podcasts.collectAsStateWithLifecycle()
-                PodcastsScreen(
-                    podcasts = podcasts,
-                    onOpen = { navController.navigate("podcast/$it") },
-                    onSearch = { navController.navigate("search") },
-                    onRefresh = { Refresh.now(context) },
-                    onOpenSettings = openSettings,
-                )
+                TabPage(chromeHeight) {
+                    val vm: PodcastsViewModel = viewModel(factory = AppViewModelFactory)
+                    val podcasts by vm.podcasts.collectAsStateWithLifecycle()
+                    PodcastsScreen(
+                        podcasts = podcasts,
+                        onOpen = { navController.navigate("podcast/$it") },
+                        onSearch = { navController.navigate("search") },
+                        onRefresh = { Refresh.now(context) },
+                        onOpenSettings = openSettings,
+                    )
+                }
             }
             composable(SETTINGS_ROUTE) {
-                SettingsScreen(
-                    settings = appSettings,
-                    dark = dark,
-                    onChange = { change ->
-                        val before = context.settings.current
-                        context.settings.update(change)
-                        // Wi-Fi only changes the network the hourly refresh waits for.
-                        if (context.settings.current.wifiOnly != before.wifiOnly) Refresh.schedulePeriodic(context)
-                    },
-                    onBack = { navController.popBackStack() },
-                )
+                FullPage {
+                    SettingsScreen(
+                        settings = appSettings,
+                        dark = dark,
+                        onChange = { change ->
+                            val before = context.settings.current
+                            context.settings.update(change)
+                            // Wi-Fi only changes the network the hourly refresh waits for.
+                            if (context.settings.current.wifiOnly != before.wifiOnly) Refresh.schedulePeriodic(context)
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
             composable("search") {
-                val vm: SearchViewModel = viewModel(factory = AppViewModelFactory)
-                val state by vm.state.collectAsStateWithLifecycle()
-                val subscribed by vm.subscribed.collectAsStateWithLifecycle()
-                SearchScreen(
-                    state = state,
-                    subscribedFeedUrls = subscribed,
-                    onQueryChange = vm::setQuery,
-                    onSearch = vm::search,
-                    onSubscribe = vm::subscribe,
-                    onBack = { navController.popBackStack() },
-                )
+                TabPage(chromeHeight) {
+                    val vm: SearchViewModel = viewModel(factory = AppViewModelFactory)
+                    val state by vm.state.collectAsStateWithLifecycle()
+                    val subscribed by vm.subscribed.collectAsStateWithLifecycle()
+                    SearchScreen(
+                        state = state,
+                        subscribedFeedUrls = subscribed,
+                        onQueryChange = vm::setQuery,
+                        onSearch = vm::search,
+                        onSubscribe = vm::subscribe,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
             composable(
                 "podcast/{podcastId}",
                 arguments = listOf(navArgument("podcastId") { type = NavType.LongType }),
             ) {
-                val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
-                val podcast by vm.podcast.collectAsStateWithLifecycle()
-                val episodes by vm.episodes.collectAsStateWithLifecycle()
-                PodcastDetailScreen(
-                    podcast = podcast,
-                    episodes = episodes,
-                    onAddToQueue = vm::addToQueue,
-                    onOpenEpisode = openEpisode,
-                    onUnsubscribe = { vm.unsubscribe { navController.popBackStack() } },
-                    onBack = { navController.popBackStack() },
-                )
+                TabPage(chromeHeight) {
+                    val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
+                    val podcast by vm.podcast.collectAsStateWithLifecycle()
+                    val episodes by vm.episodes.collectAsStateWithLifecycle()
+                    PodcastDetailScreen(
+                        podcast = podcast,
+                        episodes = episodes,
+                        onAddToQueue = vm::addToQueue,
+                        onOpenEpisode = openEpisode,
+                        onUnsubscribe = { vm.unsubscribe { navController.popBackStack() } },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
             composable(
                 EPISODE_ROUTE,
                 arguments = listOf(navArgument("episodeId") { type = NavType.LongType }),
+                enterTransition = {
+                    when (card) {
+                        CardTransition.SLIDE -> slideInVertically(tween(CARD_MS)) { it }
+                        CardTransition.FADE -> fadeIn(tween(FADE_MS))
+                        CardTransition.INSTANT -> EnterTransition.None
+                    }
+                },
+                popExitTransition = {
+                    when (card) {
+                        CardTransition.SLIDE -> slideOutVertically(tween(CARD_MS)) { it }
+                        CardTransition.FADE -> fadeOut(tween(FADE_MS))
+                        CardTransition.INSTANT -> ExitTransition.None
+                    }
+                },
             ) {
-                val vm: EpisodeViewModel = viewModel(factory = AppViewModelFactory)
-                val episode by vm.episode.collectAsStateWithLifecycle()
-                val chapters by vm.chapters.collectAsStateWithLifecycle()
-                val queueIndex by vm.queueIndex.collectAsStateWithLifecycle()
-                EpisodeScreen(
-                    item = episode,
-                    chapters = chapters,
-                    queueIndex = queueIndex,
-                    player = player,
-                    playerState = playerState,
-                    skipBackSeconds = appSettings.skipBackSeconds,
-                    skipForwardSeconds = appSettings.skipForwardSeconds,
-                    onBack = { navController.popBackStack() },
-                    onPlay = { startMs ->
-                        vm.prepareToPlay()
-                        connection?.play(vm.episodeId, startMs)
-                    },
-                    onPlayNext = vm::playNext,
-                    onAddToQueue = vm::addToQueue,
-                    onRemoveFromQueue = vm::removeFromQueue,
-                )
+                FullPage {
+                    val vm: EpisodeViewModel = viewModel(factory = AppViewModelFactory)
+                    val episode by vm.episode.collectAsStateWithLifecycle()
+                    val chapters by vm.chapters.collectAsStateWithLifecycle()
+                    val queueIndex by vm.queueIndex.collectAsStateWithLifecycle()
+                    EpisodeScreen(
+                        item = episode,
+                        chapters = chapters,
+                        queueIndex = queueIndex,
+                        player = player,
+                        playerState = playerState,
+                        skipBackSeconds = appSettings.skipBackSeconds,
+                        skipForwardSeconds = appSettings.skipForwardSeconds,
+                        onBack = { navController.popBackStack() },
+                        onPlay = { startMs ->
+                            vm.prepareToPlay()
+                            connection?.play(vm.episodeId, startMs)
+                        },
+                        onPlayNext = vm::playNext,
+                        onAddToQueue = vm::addToQueue,
+                        onRemoveFromQueue = vm::removeFromQueue,
+                    )
+                }
             }
         }
     }
@@ -251,6 +313,36 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
 
 private const val EPISODE_ROUTE = "episode/{episodeId}"
 private const val SETTINGS_ROUTE = "settings"
+private const val FADE_MS = 200
+private const val CARD_MS = 300
+
+/** A tab-level screen: below the status bar and above the mini player and tab bar. */
+@Composable
+private fun TabPage(chromeHeight: Dp, content: @Composable () -> Unit) {
+    val chrome = PaddingValues(bottom = chromeHeight)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(chrome)
+            .consumeWindowInsets(chrome),
+    ) {
+        content()
+    }
+}
+
+/** A full-height opaque screen that covers the mini player and tab bar, touches included. */
+@Composable
+private fun FullPage(content: @Composable () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+    ) {
+        content()
+    }
+}
 
 @Composable
 private fun BottomBar(navController: NavHostController) {

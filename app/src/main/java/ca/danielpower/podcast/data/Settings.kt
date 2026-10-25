@@ -19,9 +19,17 @@ enum class ThemeMode(val label: String) {
     DARK("Dark"),
 }
 
+/** How the episode / Now Playing screen opens and closes. */
+enum class CardTransition(val label: String) {
+    SLIDE("Slide"),
+    FADE("Fade"),
+    INSTANT("Instant"),
+}
+
 data class AppSettings(
     val scheme: Scheme = Scheme.WASHI,
     val themeMode: ThemeMode = ThemeMode.AUTO,
+    val cardTransition: CardTransition = CardTransition.SLIDE,
     val skipBackSeconds: Int = 10,
     val skipForwardSeconds: Int = 30,
     /** Download new episodes as soon as a refresh finds them (they then join the queue). */
@@ -50,6 +58,7 @@ class SettingsStore(context: Context) {
         prefs.edit()
             .putString(KEY_SCHEME, next.scheme.name)
             .putString(KEY_THEME, next.themeMode.name)
+            .putString(KEY_CARD_TRANSITION, next.cardTransition.name)
             .putInt(KEY_SKIP_BACK, next.skipBackSeconds)
             .putInt(KEY_SKIP_FORWARD, next.skipForwardSeconds)
             .putBoolean(KEY_AUTO_DOWNLOAD, next.autoDownload)
@@ -64,6 +73,7 @@ class SettingsStore(context: Context) {
         return AppSettings(
             scheme = enumOrDefault(prefs.getString(KEY_SCHEME, null), defaults.scheme),
             themeMode = enumOrDefault(prefs.getString(KEY_THEME, null), defaults.themeMode),
+            cardTransition = enumOrDefault(prefs.getString(KEY_CARD_TRANSITION, null), defaults.cardTransition),
             skipBackSeconds = prefs.getInt(KEY_SKIP_BACK, defaults.skipBackSeconds),
             skipForwardSeconds = prefs.getInt(KEY_SKIP_FORWARD, defaults.skipForwardSeconds),
             autoDownload = prefs.getBoolean(KEY_AUTO_DOWNLOAD, defaults.autoDownload),
@@ -78,6 +88,7 @@ class SettingsStore(context: Context) {
     private companion object {
         const val KEY_SCHEME = "scheme"
         const val KEY_THEME = "theme"
+        const val KEY_CARD_TRANSITION = "card_transition"
         const val KEY_SKIP_BACK = "skip_back_s"
         const val KEY_SKIP_FORWARD = "skip_forward_s"
         const val KEY_AUTO_DOWNLOAD = "auto_download"

@@ -21,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -158,12 +157,9 @@ private fun TopBar(
         Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // The screen is a card over the one below, so it closes downwards whether or not it's playing.
         IconButton(onClick = onBack) {
-            if (isCurrent) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Close")
-            } else {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Close")
         }
         Text(
             if (isCurrent) "NOW PLAYING" else "EPISODE",
