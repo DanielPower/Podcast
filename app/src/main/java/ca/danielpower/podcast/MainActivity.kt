@@ -10,12 +10,15 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -49,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -174,19 +178,26 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
             navController = navController,
             startDestination = Tab.Queue.route,
             modifier = Modifier.fillMaxSize(),
-            enterTransition = { fadeIn(tween(FADE_MS)) },
-            // The screen under the episode card stays put while the card covers or uncovers it.
+            // Switching tabs fades. Pages opened from a tab (a podcast, search, Settings) slide in
+            // from the right and slide back out to the right, like Android's own screens; with
+            // gesture navigation the back swipe drags them. The episode card has its own transition.
+            enterTransition = { if (opensPage()) slideInHorizontally(tween(PAGE_MS)) { it } else fadeIn(tween(FADE_MS)) },
             exitTransition = {
-                if (targetState.destination.route == EPISODE_ROUTE) {
-                    fadeOut(tween(CARD_MS), targetAlpha = 1f)
-                } else {
-                    fadeOut(tween(FADE_MS))
+                when {
+                    // The screen under the episode card stays put while the card covers or uncovers it.
+                    targetState.destination.route == EPISODE_ROUTE -> fadeOut(tween(CARD_MS), targetAlpha = 1f)
+                    opensPage() -> slideOutHorizontally(tween(PAGE_MS)) { -it / 4 }
+                    else -> fadeOut(tween(FADE_MS))
                 }
             },
             popEnterTransition = {
-                if (initialState.destination.route == EPISODE_ROUTE) EnterTransition.None else fadeIn(tween(FADE_MS))
+                when {
+                    initialState.destination.route == EPISODE_ROUTE -> EnterTransition.None
+                    closesPage() -> slideInHorizontally(tween(PAGE_MS)) { -it / 4 }
+                    else -> fadeIn(tween(FADE_MS))
+                }
             },
-            popExitTransition = { fadeOut(tween(FADE_MS)) },
+            popExitTransition = { if (closesPage()) slideOutHorizontally(tween(PAGE_MS)) { it } else fadeOut(tween(FADE_MS)) },
         ) {
             composable(Tab.Queue.route) {
                 TabPage(chromeHeight) {
@@ -317,17 +328,30 @@ private const val SETTINGS_ROUTE = "settings"
 private const val SEARCH_ROUTE = "search"
 private const val FADE_MS = 200
 private const val CARD_MS = 300
+private const val PAGE_MS = 300
 
-/** A tab-level screen: below the status bar and above the mini player and tab bar. */
+/** A page opened on top of a tab, as opposed to a tab itself or the episode card. */
+private fun NavBackStackEntry.isPage(): Boolean =
+    destination.route.let { it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it?.startsWith("podcast/") == true }
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.opensPage() = targetState.isPage()
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.closesPage() = initialState.isPage()
+
+/**
+ * A tab-level screen: below the status bar and above the mini player and tab bar. Opaque, so a
+ * page sliding over another doesn't show the one underneath.
+ */
 @Composable
 private fun TabPage(chromeHeight: Dp, content: @Composable () -> Unit) {
     val chrome = PaddingValues(bottom = chromeHeight)
     Box(
         Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .padding(chrome)
-            .consumeWindowInsets(chrome),
+            .consumeWindowInsets(chrome)
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding(),
     ) {
         content()
     }
