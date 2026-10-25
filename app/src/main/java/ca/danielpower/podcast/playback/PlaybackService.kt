@@ -247,7 +247,27 @@ class PlaybackService : MediaLibraryService() {
         }
 
         private suspend fun resolve(mediaItems: List<MediaItem>): List<EpisodeWithPodcast> =
-            mediaItems.mapNotNull { item -> item.mediaId.toLongOrNull()?.let { repository.getEpisode(it) } }
+            mediaItems.mapNotNull { item ->
+                val query = item.requestMetadata.searchQuery
+                when {
+                    item.mediaId.toLongOrNull() != null -> repository.getEpisode(item.mediaId.toLong())
+                    query != null -> searchQueue(query)
+                    else -> null
+                }
+            }
+
+        /**
+         * Voice search ("play <podcast>"): the first downloaded queue episode whose title or podcast
+         * matches, or the head of the queue for a bare "play".
+         */
+        private suspend fun searchQueue(query: String): EpisodeWithPodcast? {
+            val playable = repository.getQueue().filter { it.isPlayable }
+            val q = query.trim()
+            if (q.isEmpty()) return playable.firstOrNull()
+            return playable.firstOrNull {
+                it.podcast.title.contains(q, ignoreCase = true) || it.episode.title.contains(q, ignoreCase = true)
+            } ?: playable.firstOrNull()
+        }
     }
 
     private fun <T> future(block: suspend CoroutineScope.() -> T): ListenableFuture<T> {
