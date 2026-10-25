@@ -42,7 +42,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.AppSettings
-import ca.danielpower.podcast.data.CardTransition
 import ca.danielpower.podcast.data.Scheme
 import ca.danielpower.podcast.data.ThemeMode
 
@@ -88,22 +87,6 @@ fun SettingsScreen(
                             selected = settings.themeMode == mode,
                             onClick = { onChange { it.copy(themeMode = mode) } },
                             label = mode.label,
-                        )
-                    }
-                }
-            }
-
-            Row(
-                Modifier.fillMaxWidth().padding(start = SideMargin, end = SideMargin, bottom = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Now playing opens", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (transition in CardTransition.entries) {
-                        PaperChip(
-                            selected = settings.cardTransition == transition,
-                            onClick = { onChange { it.copy(cardTransition = transition) } },
-                            label = transition.label,
                         )
                     }
                 }

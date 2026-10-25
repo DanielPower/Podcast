@@ -11,15 +11,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,7 +57,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ca.danielpower.podcast.data.AppSettings
-import ca.danielpower.podcast.data.CardTransition
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.playback.PlayerConnection
 import ca.danielpower.podcast.playback.rememberPlayerUiState
@@ -150,7 +145,6 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
     }.collectAsStateWithLifecycle(emptyList())
     val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
     val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
-    val card = appSettings.cardTransition
 
     // The mini player and tab bar sit underneath the screens. Tab screens stop above them; the
     // episode screen and Settings are full height and opaque, so they cover them. That way nothing
@@ -178,24 +172,13 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
             navController = navController,
             startDestination = Tab.Queue.route,
             modifier = Modifier.fillMaxSize(),
-            // Switching tabs fades. Pages opened from a tab (a podcast, search, Settings) slide in
-            // from the right and slide back out to the right, like Android's own screens; with
-            // gesture navigation the back swipe drags them. The episode card has its own transition.
+            // Switching tabs fades. Pages opened from a tab (a podcast, search, Settings, an episode)
+            // slide in from the right and slide back out to the right, like Android's own screens;
+            // with gesture navigation the back swipe drags them.
             enterTransition = { if (opensPage()) slideInHorizontally(tween(PAGE_MS)) { it } else fadeIn(tween(FADE_MS)) },
-            exitTransition = {
-                when {
-                    // The screen under the episode card stays put while the card covers or uncovers it.
-                    targetState.destination.route == EPISODE_ROUTE -> fadeOut(tween(CARD_MS), targetAlpha = 1f)
-                    opensPage() -> slideOutHorizontally(tween(PAGE_MS)) { -it / 4 }
-                    else -> fadeOut(tween(FADE_MS))
-                }
-            },
+            exitTransition = { if (opensPage()) slideOutHorizontally(tween(PAGE_MS)) { -it / 4 } else fadeOut(tween(FADE_MS)) },
             popEnterTransition = {
-                when {
-                    initialState.destination.route == EPISODE_ROUTE -> EnterTransition.None
-                    closesPage() -> slideInHorizontally(tween(PAGE_MS)) { -it / 4 }
-                    else -> fadeIn(tween(FADE_MS))
-                }
+                if (closesPage()) slideInHorizontally(tween(PAGE_MS)) { -it / 4 } else fadeIn(tween(FADE_MS))
             },
             popExitTransition = { if (closesPage()) slideOutHorizontally(tween(PAGE_MS)) { it } else fadeOut(tween(FADE_MS)) },
         ) {
@@ -280,20 +263,6 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
             composable(
                 EPISODE_ROUTE,
                 arguments = listOf(navArgument("episodeId") { type = NavType.LongType }),
-                enterTransition = {
-                    when (card) {
-                        CardTransition.SLIDE -> slideInVertically(tween(CARD_MS)) { it }
-                        CardTransition.FADE -> fadeIn(tween(FADE_MS))
-                        CardTransition.INSTANT -> EnterTransition.None
-                    }
-                },
-                popExitTransition = {
-                    when (card) {
-                        CardTransition.SLIDE -> slideOutVertically(tween(CARD_MS)) { it }
-                        CardTransition.FADE -> fadeOut(tween(FADE_MS))
-                        CardTransition.INSTANT -> ExitTransition.None
-                    }
-                },
             ) {
                 FullPage {
                     val vm: EpisodeViewModel = viewModel(factory = AppViewModelFactory)
@@ -327,12 +296,13 @@ private const val EPISODE_ROUTE = "episode/{episodeId}"
 private const val SETTINGS_ROUTE = "settings"
 private const val SEARCH_ROUTE = "search"
 private const val FADE_MS = 200
-private const val CARD_MS = 300
 private const val PAGE_MS = 300
 
-/** A page opened on top of a tab, as opposed to a tab itself or the episode card. */
+/** A page opened on top of a tab, as opposed to a tab itself. */
 private fun NavBackStackEntry.isPage(): Boolean =
-    destination.route.let { it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it?.startsWith("podcast/") == true }
+    destination.route.let {
+        it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it == EPISODE_ROUTE || it?.startsWith("podcast/") == true
+    }
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.opensPage() = targetState.isPage()
 
