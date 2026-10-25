@@ -74,6 +74,8 @@ class SearchViewModel(private val repository: PodcastRepository) : ViewModel() {
 
     fun setQuery(query: String) = _state.update { it.copy(query = query) }
 
+    fun clearSearch() = _state.update { it.copy(query = "", results = emptyList(), error = null) }
+
     fun search() {
         val term = _state.value.query.trim()
         if (term.isEmpty()) return

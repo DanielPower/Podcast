@@ -39,6 +39,8 @@ class DirectorySearch(private val client: OkHttpClient) {
                         .takeIf { it.isNotBlank() },
                 )
             }
+                // The directory can list the same feed more than once; the results list is keyed by feed URL.
+                .distinctBy { it.feedUrl }
         }
     }
 }

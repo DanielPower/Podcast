@@ -19,6 +19,7 @@ import androidx.media3.session.SessionError
 import ca.danielpower.podcast.MainActivity
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.repository
+import ca.danielpower.podcast.settings
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -61,8 +62,6 @@ class PlaybackService : MediaLibraryService() {
                 true,
             )
             .setHandleAudioBecomingNoisy(true)
-            .setSeekBackIncrementMs(10_000)
-            .setSeekForwardIncrementMs(30_000)
             .build()
         player = QueuePlayer(exoPlayer)
         player.addListener(object : Player.Listener {
@@ -175,6 +174,18 @@ class PlaybackService : MediaLibraryService() {
 
         override fun seekToNext() = skipCurrent()
         override fun seekToNextMediaItem() = skipCurrent()
+
+        // Skip lengths come from Settings, so they can change while the player is running.
+        override fun getSeekBackIncrement(): Long = settings.current.skipBackSeconds * 1000L
+        override fun getSeekForwardIncrement(): Long = settings.current.skipForwardSeconds * 1000L
+
+        override fun seekBack() = seekTo((currentPosition - seekBackIncrement).coerceAtLeast(0))
+
+        override fun seekForward() {
+            val target = currentPosition + seekForwardIncrement
+            val length = duration
+            seekTo(if (length != C.TIME_UNSET) target.coerceAtMost(length) else target)
+        }
     }
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {

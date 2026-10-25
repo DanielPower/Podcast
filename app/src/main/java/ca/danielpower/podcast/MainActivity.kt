@@ -2,35 +2,53 @@ package ca.danielpower.podcast
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -38,6 +56,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.playback.PlayerConnection
 import ca.danielpower.podcast.playback.rememberPlayerUiState
@@ -45,6 +64,8 @@ import ca.danielpower.podcast.ui.AppViewModelFactory
 import ca.danielpower.podcast.ui.EpisodeScreen
 import ca.danielpower.podcast.ui.EpisodeViewModel
 import ca.danielpower.podcast.ui.MiniPlayer
+import ca.danielpower.podcast.ui.PaperNavBar
+import ca.danielpower.podcast.ui.PaperNavItem
 import ca.danielpower.podcast.ui.PodcastDetailScreen
 import ca.danielpower.podcast.ui.PodcastDetailViewModel
 import ca.danielpower.podcast.ui.PodcastTheme
@@ -54,6 +75,8 @@ import ca.danielpower.podcast.ui.QueueScreen
 import ca.danielpower.podcast.ui.QueueViewModel
 import ca.danielpower.podcast.ui.SearchScreen
 import ca.danielpower.podcast.ui.SearchViewModel
+import ca.danielpower.podcast.ui.SettingsScreen
+import ca.danielpower.podcast.ui.isDark
 import ca.danielpower.podcast.work.Refresh
 import kotlinx.coroutines.flow.flowOf
 
@@ -76,8 +99,19 @@ class MainActivity : ComponentActivity() {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         setContent {
-            PodcastTheme {
-                App(connectionState.value)
+            val appSettings by settings.settings.collectAsStateWithLifecycle()
+            val dark = appSettings.themeMode.isDark()
+            // The theme can differ from the system's, so the status bar icons follow the theme.
+            LaunchedEffect(dark) {
+                val style = if (dark) {
+                    SystemBarStyle.dark(Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+            PodcastTheme(appSettings.scheme, dark) {
+                App(connectionState.value, appSettings, dark)
             }
         }
     }
@@ -101,7 +135,7 @@ private enum class Tab(val route: String, val label: String, val icon: ImageVect
 }
 
 @Composable
-private fun App(connection: PlayerConnection?) {
+private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: Boolean) {
     val navController = rememberNavController()
     val player = connection?.controller
     val playerState = rememberPlayerUiState(player)
@@ -109,131 +143,227 @@ private fun App(connection: PlayerConnection?) {
     val playingChapters by remember(playerState.episodeId) {
         playerState.episodeId?.let { context.repository.observeChapters(it) } ?: flowOf(emptyList<Chapter>())
     }.collectAsStateWithLifecycle(emptyList())
-    val backStack by navController.currentBackStackEntryAsState()
-    // The episode screen is full height: it has its own player controls at the bottom.
-    val onEpisodeScreen = backStack?.destination?.route == EPISODE_ROUTE
     val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
+    val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
 
-    Scaffold(
-        bottomBar = {
-            if (!onEpisodeScreen) {
-                Column {
-                    MiniPlayer(
-                        state = playerState,
-                        player = player,
-                        chapters = playingChapters,
-                        onClick = { playerState.episodeId?.let(openEpisode) },
-                    )
-                    BottomBar(navController)
-                }
-            }
-        },
-    ) { padding ->
+    // The mini player and tab bar sit underneath the screens. Tab screens stop above them; the
+    // episode screen and Settings are full height and opaque, so they cover them. That way nothing
+    // pops in or resizes while the episode screen opens or closes over the screen below.
+    var chromeHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { chromeHeight = with(density) { it.height.toDp() } },
+        ) {
+            MiniPlayer(
+                state = playerState,
+                player = player,
+                chapters = playingChapters,
+                skipBackSeconds = appSettings.skipBackSeconds,
+                skipForwardSeconds = appSettings.skipForwardSeconds,
+                onClick = { playerState.episodeId?.let(openEpisode) },
+            )
+            BottomBar(navController)
+        }
         NavHost(
             navController = navController,
             startDestination = Tab.Queue.route,
-            modifier = Modifier.padding(padding).consumeWindowInsets(padding),
+            modifier = Modifier.fillMaxSize(),
+            // Switching tabs fades. Pages opened from a tab (a podcast, search, Settings, an episode)
+            // slide in from the right and slide back out to the right, like Android's own screens;
+            // with gesture navigation the back swipe drags them.
+            enterTransition = { if (opensPage()) slideInHorizontally(tween(PAGE_MS)) { it } else fadeIn(tween(FADE_MS)) },
+            exitTransition = { if (opensPage()) slideOutHorizontally(tween(PAGE_MS)) { -it / 4 } else fadeOut(tween(FADE_MS)) },
+            popEnterTransition = {
+                if (closesPage()) slideInHorizontally(tween(PAGE_MS)) { -it / 4 } else fadeIn(tween(FADE_MS))
+            },
+            popExitTransition = { if (closesPage()) slideOutHorizontally(tween(PAGE_MS)) { it } else fadeOut(tween(FADE_MS)) },
         ) {
             composable(Tab.Queue.route) {
-                val vm: QueueViewModel = viewModel(factory = AppViewModelFactory)
-                val queue by vm.queue.collectAsStateWithLifecycle()
-                QueueScreen(
-                    queue = queue,
-                    playingEpisodeId = playerState.episodeId,
-                    onOpen = openEpisode,
-                    onReorder = vm::reorder,
-                    onDismiss = vm::dismiss,
-                    onRetryDownload = vm::retryDownload,
-                )
+                TabPage(chromeHeight) {
+                    val vm: QueueViewModel = viewModel(factory = AppViewModelFactory)
+                    val queue by vm.queue.collectAsStateWithLifecycle()
+                    QueueScreen(
+                        queue = queue,
+                        playerState = playerState,
+                        playingChapters = playingChapters,
+                        onOpen = openEpisode,
+                        onReorder = vm::reorder,
+                        onDismiss = vm::dismiss,
+                        onRetryDownload = vm::retryDownload,
+                        onOpenSettings = openSettings,
+                    )
+                }
             }
             composable(Tab.Podcasts.route) {
-                val vm: PodcastsViewModel = viewModel(factory = AppViewModelFactory)
-                val podcasts by vm.podcasts.collectAsStateWithLifecycle()
-                PodcastsScreen(
-                    podcasts = podcasts,
-                    onOpen = { navController.navigate("podcast/$it") },
-                    onSearch = { navController.navigate("search") },
-                    onRefresh = { Refresh.now(context) },
-                )
+                TabPage(chromeHeight) {
+                    val vm: PodcastsViewModel = viewModel(factory = AppViewModelFactory)
+                    val podcasts by vm.podcasts.collectAsStateWithLifecycle()
+                    PodcastsScreen(
+                        podcasts = podcasts,
+                        onOpen = { navController.navigate("podcast/$it") },
+                        onSearch = { navController.navigate(SEARCH_ROUTE) },
+                        onRefresh = { Refresh.now(context) },
+                        onOpenSettings = openSettings,
+                    )
+                }
             }
-            composable("search") {
-                val vm: SearchViewModel = viewModel(factory = AppViewModelFactory)
-                val state by vm.state.collectAsStateWithLifecycle()
-                val subscribed by vm.subscribed.collectAsStateWithLifecycle()
-                SearchScreen(
-                    state = state,
-                    subscribedFeedUrls = subscribed,
-                    onQueryChange = vm::setQuery,
-                    onSearch = vm::search,
-                    onSubscribe = vm::subscribe,
-                    onBack = { navController.popBackStack() },
-                )
+            composable(SETTINGS_ROUTE) {
+                FullPage {
+                    SettingsScreen(
+                        settings = appSettings,
+                        dark = dark,
+                        onChange = { change ->
+                            val before = context.settings.current
+                            context.settings.update(change)
+                            // Wi-Fi only changes the network the hourly refresh waits for.
+                            if (context.settings.current.wifiOnly != before.wifiOnly) Refresh.schedulePeriodic(context)
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+            }
+            composable(SEARCH_ROUTE) {
+                TabPage(chromeHeight) {
+                    val vm: SearchViewModel = viewModel(factory = AppViewModelFactory)
+                    val state by vm.state.collectAsStateWithLifecycle()
+                    val subscribed by vm.subscribed.collectAsStateWithLifecycle()
+                    SearchScreen(
+                        state = state,
+                        subscribedFeedUrls = subscribed,
+                        onQueryChange = vm::setQuery,
+                        onSearch = vm::search,
+                        onClear = vm::clearSearch,
+                        onSubscribe = vm::subscribe,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
             composable(
                 "podcast/{podcastId}",
                 arguments = listOf(navArgument("podcastId") { type = NavType.LongType }),
             ) {
-                val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
-                val podcast by vm.podcast.collectAsStateWithLifecycle()
-                val episodes by vm.episodes.collectAsStateWithLifecycle()
-                PodcastDetailScreen(
-                    podcast = podcast,
-                    episodes = episodes,
-                    onAddToQueue = vm::addToQueue,
-                    onOpenEpisode = openEpisode,
-                    onUnsubscribe = { vm.unsubscribe { navController.popBackStack() } },
-                    onBack = { navController.popBackStack() },
-                )
+                TabPage(chromeHeight) {
+                    val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
+                    val podcast by vm.podcast.collectAsStateWithLifecycle()
+                    val episodes by vm.episodes.collectAsStateWithLifecycle()
+                    PodcastDetailScreen(
+                        podcast = podcast,
+                        episodes = episodes,
+                        onAddToQueue = vm::addToQueue,
+                        onOpenEpisode = openEpisode,
+                        onUnsubscribe = { vm.unsubscribe { navController.popBackStack() } },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
             composable(
                 EPISODE_ROUTE,
                 arguments = listOf(navArgument("episodeId") { type = NavType.LongType }),
             ) {
-                val vm: EpisodeViewModel = viewModel(factory = AppViewModelFactory)
-                val episode by vm.episode.collectAsStateWithLifecycle()
-                val chapters by vm.chapters.collectAsStateWithLifecycle()
-                val queueIndex by vm.queueIndex.collectAsStateWithLifecycle()
-                EpisodeScreen(
-                    item = episode,
-                    chapters = chapters,
-                    queueIndex = queueIndex,
-                    player = player,
-                    playerState = playerState,
-                    onBack = { navController.popBackStack() },
-                    onPlay = { startMs ->
-                        vm.prepareToPlay()
-                        connection?.play(vm.episodeId, startMs)
-                    },
-                    onPlayNext = vm::playNext,
-                    onAddToQueue = vm::addToQueue,
-                    onRemoveFromQueue = vm::removeFromQueue,
-                )
+                FullPage {
+                    val vm: EpisodeViewModel = viewModel(factory = AppViewModelFactory)
+                    val episode by vm.episode.collectAsStateWithLifecycle()
+                    val chapters by vm.chapters.collectAsStateWithLifecycle()
+                    val queueIndex by vm.queueIndex.collectAsStateWithLifecycle()
+                    EpisodeScreen(
+                        item = episode,
+                        chapters = chapters,
+                        queueIndex = queueIndex,
+                        player = player,
+                        playerState = playerState,
+                        skipBackSeconds = appSettings.skipBackSeconds,
+                        skipForwardSeconds = appSettings.skipForwardSeconds,
+                        onBack = { navController.popBackStack() },
+                        onPlay = { startMs ->
+                            vm.prepareToPlay()
+                            connection?.play(vm.episodeId, startMs)
+                        },
+                        onPlayNext = vm::playNext,
+                        onAddToQueue = vm::addToQueue,
+                        onRemoveFromQueue = vm::removeFromQueue,
+                    )
+                }
             }
         }
     }
 }
 
 private const val EPISODE_ROUTE = "episode/{episodeId}"
+private const val SETTINGS_ROUTE = "settings"
+private const val SEARCH_ROUTE = "search"
+private const val FADE_MS = 200
+private const val PAGE_MS = 300
+
+/** A page opened on top of a tab, as opposed to a tab itself. */
+private fun NavBackStackEntry.isPage(): Boolean =
+    destination.route.let {
+        it == SETTINGS_ROUTE || it == SEARCH_ROUTE || it == EPISODE_ROUTE || it?.startsWith("podcast/") == true
+    }
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.opensPage() = targetState.isPage()
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.closesPage() = initialState.isPage()
+
+/**
+ * A tab-level screen: below the status bar and above the mini player and tab bar. Opaque, so a
+ * page sliding over another doesn't show the one underneath.
+ */
+@Composable
+private fun TabPage(chromeHeight: Dp, content: @Composable () -> Unit) {
+    val chrome = PaddingValues(bottom = chromeHeight)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(chrome)
+            .consumeWindowInsets(chrome)
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding(),
+    ) {
+        content()
+    }
+}
+
+/** A full-height opaque screen that covers the mini player and tab bar, touches included. */
+@Composable
+private fun FullPage(content: @Composable () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+    ) {
+        content()
+    }
+}
 
 @Composable
 private fun BottomBar(navController: NavHostController) {
     val backStack by navController.currentBackStackEntryAsState()
     val destination = backStack?.destination
-    NavigationBar {
+    PaperNavBar {
         for (tab in Tab.entries) {
             val selected = destination?.hierarchy?.any { it.route == tab.route } == true ||
-                (tab == Tab.Podcasts && destination?.route?.let { it == "search" || it.startsWith("podcast/") } == true)
-            NavigationBarItem(
+                (tab == Tab.Podcasts && destination?.route?.let { it == SEARCH_ROUTE || it.startsWith("podcast/") } == true)
+            PaperNavItem(
+                label = tab.label,
+                icon = tab.icon,
                 selected = selected,
                 onClick = {
+                    // Leaving the Podcasts tab drops a search in progress, so it isn't restored
+                    // (with the keyboard popping up) when the tab is opened again.
+                    if (runCatching { navController.getBackStackEntry(SEARCH_ROUTE) }.isSuccess) {
+                        navController.popBackStack(SEARCH_ROUTE, inclusive = true)
+                    }
                     navController.navigate(tab.route) {
                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
                     }
                 },
-                icon = { Icon(tab.icon, contentDescription = null) },
-                label = { Text(tab.label) },
             )
         }
     }

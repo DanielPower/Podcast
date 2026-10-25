@@ -13,78 +13,94 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Forward30
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.fromHtml
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.playback.PlayerUiState
-import coil.compose.AsyncImage
 import java.io.File
+import kotlinx.coroutines.launch
 
-private enum class EpisodeTab(val label: String) { Chapters("Chapters"), Notes("Notes"), Details("Details") }
+private enum class EpisodeTab(val label: String) { Notes("Notes"), Chapters("Chapters"), Details("Details") }
+
+/**
+ * The Chapters tab. Greyed out when the episode has none; tapping it then says so instead of
+ * opening an empty list.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChaptersChip(selected: Boolean, hasChapters: Boolean, onClick: () -> Unit) {
+    val tooltip = rememberTooltipState()
+    val scope = rememberCoroutineScope()
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text("This episode has no chapters") } },
+        state = tooltip,
+        enableUserInput = false,
+    ) {
+        PaperChip(
+            selected = selected && hasChapters,
+            enabled = hasChapters,
+            onClick = { if (hasChapters) onClick() else scope.launch { tooltip.show() } },
+            label = EpisodeTab.Chapters.label,
+        )
+    }
+}
 
 /**
  * One screen for both an episode's page and Now Playing. When the episode is the one loaded in the
  * player, the bottom pane holds the player controls; otherwise it offers Play now / Play next. The
  * pane is the same height either way, so starting playback doesn't move anything.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EpisodeScreen(
     item: EpisodeWithPodcast?,
@@ -92,6 +108,8 @@ fun EpisodeScreen(
     queueIndex: Int?,
     player: Player?,
     playerState: PlayerUiState,
+    skipBackSeconds: Int,
+    skipForwardSeconds: Int,
     onBack: () -> Unit,
     onPlay: (startMs: Long?) -> Unit,
     onPlayNext: () -> Unit,
@@ -99,11 +117,7 @@ fun EpisodeScreen(
     onRemoveFromQueue: () -> Unit,
 ) {
     val isCurrent = item != null && player != null && playerState.episodeId == item.episode.id
-    // Until the user picks a tab, show Chapters if there are any (they load after the screen opens).
-    var pickedTab by rememberSaveable { mutableIntStateOf(-1) }
-    val tab = if (pickedTab >= 0) pickedTab else if (chapters.isNotEmpty()) 0 else 1
-    var menuOpen by remember { mutableStateOf(false) }
-    val uriHandler = LocalUriHandler.current
+    var tab by rememberSaveable { mutableIntStateOf(EpisodeTab.Notes.ordinal) }
 
     val positionMs = if (isCurrent) playerState.positionMs else item?.episode?.positionMs ?: 0
     val durationMs = if (isCurrent && playerState.durationMs > 0) {
@@ -112,83 +126,21 @@ fun EpisodeScreen(
         item?.episode?.durationMs ?: 0
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        if (isCurrent) "Now playing" else "Episode",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        if (isCurrent) {
-                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Close")
-                        } else {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                },
-                actions = {
-                    item?.episode?.link?.let { link ->
-                        IconButton(onClick = { uriHandler.openUri(link) }) {
-                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open episode web page")
-                        }
-                    }
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        if (queueIndex == null) {
-                            DropdownMenuItem(
-                                text = { Text("Add to queue") },
-                                onClick = {
-                                    menuOpen = false
-                                    onAddToQueue()
-                                },
-                            )
-                        } else {
-                            DropdownMenuItem(
-                                text = { Text("Remove from queue") },
-                                onClick = {
-                                    menuOpen = false
-                                    onRemoveFromQueue()
-                                },
-                            )
-                        }
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            if (item != null) {
-                BottomPane(
-                    item = item,
-                    chapters = chapters,
-                    queueIndex = queueIndex,
-                    isCurrent = isCurrent,
-                    isPlaying = isCurrent && playerState.isPlaying,
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    player = player,
-                    onPlay = onPlay,
-                    onPlayNext = onPlayNext,
-                )
-            }
-        },
-    ) { padding ->
-        if (item == null) return@Scaffold
-        Column(Modifier.padding(padding).fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        TopBar(item, isCurrent, queueIndex, onBack, onAddToQueue, onRemoveFromQueue)
+        if (item == null) return@Column
+        Column(Modifier.weight(1f)) {
             Header(item)
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+            Row(
+                Modifier.padding(start = SideMargin, end = SideMargin, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 EpisodeTab.entries.forEachIndexed { index, t ->
-                    SegmentedButton(
-                        selected = tab == index,
-                        onClick = { pickedTab = index },
-                        shape = SegmentedButtonDefaults.itemShape(index, EpisodeTab.entries.size),
-                        label = { Text(t.label) },
-                    )
+                    if (t == EpisodeTab.Chapters) {
+                        ChaptersChip(selected = tab == index, hasChapters = chapters.isNotEmpty(), onClick = { tab = index })
+                    } else {
+                        PaperChip(selected = tab == index, onClick = { tab = index }, label = t.label)
+                    }
                 }
             }
             Box(Modifier.weight(1f)) {
@@ -196,6 +148,7 @@ fun EpisodeScreen(
                     EpisodeTab.Chapters -> ChapterList(
                         chapters = chapters,
                         current = if (isCurrent) chapters.chapterAt(positionMs) else null,
+                        positionMs = if (isCurrent) positionMs else 0,
                         onChapter = { chapter ->
                             if (isCurrent) player?.seekTo(chapter.startMs) else onPlay(chapter.startMs)
                         },
@@ -205,38 +158,115 @@ fun EpisodeScreen(
                 }
             }
         }
+        BottomPane(
+            item = item,
+            chapters = chapters,
+            queueIndex = queueIndex,
+            isCurrent = isCurrent,
+            isPlaying = isCurrent && playerState.isPlaying,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            player = player,
+            skipBackSeconds = skipBackSeconds,
+            skipForwardSeconds = skipForwardSeconds,
+            onPlay = onPlay,
+            onPlayNext = onPlayNext,
+        )
+    }
+}
+
+@Composable
+private fun TopBar(
+    item: EpisodeWithPodcast?,
+    isCurrent: Boolean,
+    queueIndex: Int?,
+    onBack: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onRemoveFromQueue: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
+    Row(
+        Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        }
+        Text(
+            if (isCurrent) "NOW PLAYING" else "EPISODE",
+            style = MaterialTheme.typography.labelSmall,
+            letterSpacing = 1.5.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f),
+        )
+        val link = item?.episode?.link
+        if (link != null) {
+            IconButton(onClick = { uriHandler.openUri(link) }) {
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open episode web page")
+            }
+        } else {
+            Spacer(Modifier.size(48.dp))
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }, enabled = item != null) {
+                Icon(Icons.Default.MoreVert, contentDescription = "More")
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (queueIndex == null) {
+                    DropdownMenuItem(
+                        text = { Text("Add to queue") },
+                        onClick = {
+                            menuOpen = false
+                            onAddToQueue()
+                        },
+                    )
+                } else {
+                    DropdownMenuItem(
+                        text = { Text("Remove from queue") },
+                        onClick = {
+                            menuOpen = false
+                            onRemoveFromQueue()
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun Header(item: EpisodeWithPodcast) {
     val episode = item.episode
-    Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-        AsyncImage(
-            model = item.artworkUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(112.dp).clip(RoundedCornerShape(14.dp)),
-        )
-        Spacer(Modifier.width(16.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(
+        Modifier.padding(start = SideMargin, end = SideMargin, top = 8.dp, bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Artwork(item.artworkUrl, 120.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 2.dp)) {
             Text(
                 item.podcast.title,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.secondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 episode.title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
+                fontSize = 20.sp,
+                lineHeight = 26.sp,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                listOfNotNull(seasonEpisode(item), formatDate(episode.publishedAt).takeIf { it.isNotEmpty() })
-                    .joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
+                listOfNotNull(
+                    seasonEpisode(item),
+                    formatDate(episode.publishedAt).takeIf { it.isNotEmpty() },
+                    episode.durationMs?.let(::formatMinutes),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -244,33 +274,51 @@ private fun Header(item: EpisodeWithPodcast) {
 }
 
 @Composable
-private fun ChapterList(chapters: List<Chapter>, current: Chapter?, onChapter: (Chapter) -> Unit) {
+private fun ChapterList(chapters: List<Chapter>, current: Chapter?, positionMs: Long, onChapter: (Chapter) -> Unit) {
     if (chapters.isEmpty()) {
         EmptyMessage("This episode has no chapters.")
         return
     }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
-        items(chapters, key = { it.startMs }) { chapter ->
+    val colors = MaterialTheme.colorScheme
+    LazyColumn(Modifier.fillMaxSize()) {
+        itemsIndexed(chapters, key = { _, chapter -> chapter.startMs }) { index, chapter ->
             val selected = chapter == current
+            // Chapters already played (before the current one) fade to the secondary ink.
+            val past = current != null && !selected && chapter.startMs < positionMs
+            HorizontalDivider(color = colors.outlineVariant)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+                    .background(if (selected) colors.primaryContainer else colors.surface)
                     .clickable { onChapter(chapter) }
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                    .padding(horizontal = SideMargin)
+                    .height(52.dp),
             ) {
                 Text(
-                    formatDuration(chapter.startMs),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(64.dp),
+                    "${index + 1}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) colors.primary else colors.onSurfaceVariant,
+                    modifier = Modifier.width(22.dp),
                 )
                 Text(
                     chapter.title.ifEmpty { "Untitled chapter" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (selected) FontWeight.Medium else null,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (selected) FontWeight.Bold else null,
+                    color = when {
+                        selected -> colors.onPrimaryContainer
+                        past -> colors.onSurfaceVariant
+                        else -> colors.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    formatDuration(chapter.startMs),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (selected) colors.primary else colors.onSurfaceVariant,
                 )
             }
         }
@@ -283,7 +331,7 @@ private fun Notes(description: String?) {
         EmptyMessage("This episode has no show notes.")
         return
     }
-    val linkColor = MaterialTheme.colorScheme.primary
+    val linkColor = MaterialTheme.colorScheme.secondary
     val text = remember(description, linkColor) {
         if ('<' in description) {
             AnnotatedString.fromHtml(
@@ -297,7 +345,8 @@ private fun Notes(description: String?) {
     Text(
         text,
         style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 4.dp),
+        lineHeight = 22.sp,
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = SideMargin, vertical = 4.dp),
     )
 }
 
@@ -320,7 +369,7 @@ private fun Details(item: EpisodeWithPodcast, queueIndex: Int?) {
         },
         "Played" to if (episode.played) "Yes" else "No",
     )
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = SideMargin)) {
         for ((label, value) in rows) {
             DetailRow(label, value)
         }
@@ -328,11 +377,16 @@ private fun Details(item: EpisodeWithPodcast, queueIndex: Int?) {
             Row(
                 Modifier.fillMaxWidth().clickable { uriHandler.openUri(link) }.padding(vertical = 12.dp),
             ) {
-                Text("Web page", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(110.dp))
+                Text(
+                    "Web page",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(110.dp),
+                )
                 Text(
                     link,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -352,12 +406,12 @@ private fun DetailRow(label: String, value: String) {
         )
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
-    HorizontalDivider()
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
 private fun BottomPane(
-    item: EpisodeWithPodcast,
+    item: EpisodeWithPodcast?,
     chapters: List<Chapter>,
     queueIndex: Int?,
     isCurrent: Boolean,
@@ -365,84 +419,99 @@ private fun BottomPane(
     positionMs: Long,
     durationMs: Long,
     player: Player?,
+    skipBackSeconds: Int,
+    skipForwardSeconds: Int,
     onPlay: (Long?) -> Unit,
     onPlayNext: () -> Unit,
 ) {
+    if (item == null) return
     val episode = item.episode
     val chapter = chapters.chapterAt(positionMs)
     val chapterIndex = chapter?.let { chapters.indexOf(it) } ?: -1
+    val colors = MaterialTheme.colorScheme
 
     // Every row has a fixed height, so the pane is the same size in both states.
-    Surface(tonalElevation = 3.dp) {
-        Column(Modifier.navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Text(
-                text = if (isCurrent) {
-                    chapter?.let { "Chapter ${chapterIndex + 1} · ${it.title}" } ?: item.podcast.title
-                } else {
-                    notPlayingStatus(episode.played, positionMs, durationMs, chapters.size, queueIndex)
-                },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.height(20.dp),
-            )
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.podcastColors.raised)) {
+        HorizontalDivider(color = colors.outlineVariant)
+        Column(Modifier.navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)) {
+            Row(Modifier.fillMaxWidth().height(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (isCurrent) {
+                        chapter?.let { "Ch. ${chapterIndex + 1} · ${it.title}" } ?: item.podcast.title
+                    } else {
+                        notPlayingStatus(episode.played, positionMs, durationMs, queueIndex)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (isCurrent) colors.primary else colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (chapters.isNotEmpty()) {
+                    Text(
+                        if (isCurrent && chapterIndex >= 0) "${chapterIndex + 1} of ${chapters.size}" else "${chapters.size} chapters",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
+            }
             ChapterSeekBar(
                 chapters = chapters,
                 positionMs = positionMs,
                 durationMs = durationMs,
+                height = 20.dp,
+                activeColor = if (isCurrent) colors.primary else colors.onSurface,
                 onSeek = if (isCurrent) ({ ms: Long -> player?.seekTo(ms) }) else null,
             )
             Row(Modifier.fillMaxWidth().height(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatDuration(positionMs), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                 Text(
-                    formatDuration(positionMs),
+                    if (durationMs > 0) "−${formatDuration((durationMs - positionMs).coerceAtLeast(0))}" else "",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    if (durationMs > 0) "-${formatDuration((durationMs - positionMs).coerceAtLeast(0))}" else "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.onSurfaceVariant,
                 )
             }
             Row(
-                Modifier.fillMaxWidth().height(72.dp),
+                Modifier.fillMaxWidth().padding(top = 4.dp).height(60.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = if (isCurrent) Arrangement.SpaceBetween else Arrangement.spacedBy(12.dp),
+                horizontalArrangement = if (isCurrent) Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(10.dp),
             ) {
                 if (isCurrent && player != null) {
                     IconButton(onClick = { previousChapter(player, chapters) }, enabled = chapters.isNotEmpty()) {
                         Icon(Icons.Default.SkipPrevious, contentDescription = "Previous chapter")
                     }
-                    IconButton(onClick = { player.seekBack() }) {
-                        Icon(Icons.Default.Replay10, contentDescription = "Back 10 seconds")
+                    IconButton(onClick = { player.seekBack() }, modifier = Modifier.size(52.dp)) {
+                        SkipIcon(skipBackSeconds, forward = false, size = 28.dp)
                     }
-                    FilledIconButton(
-                        onClick = { if (isPlaying) player.pause() else player.play() },
-                        modifier = Modifier.size(64.dp),
-                        shape = CircleShape,
-                        colors = IconButtonDefaults.filledIconButtonColors(),
+                    Box(
+                        Modifier
+                            .size(60.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(colors.primary)
+                            .clickable { if (isPlaying) player.pause() else player.play() },
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
-                            modifier = Modifier.size(32.dp),
+                            tint = colors.onPrimary,
+                            modifier = Modifier.size(30.dp),
                         )
                     }
-                    IconButton(onClick = { player.seekForward() }) {
-                        Icon(Icons.Default.Forward30, contentDescription = "Forward 30 seconds")
+                    IconButton(onClick = { player.seekForward() }, modifier = Modifier.size(52.dp)) {
+                        SkipIcon(skipForwardSeconds, forward = true, size = 28.dp)
                     }
                     val next = chapters.getOrNull(chapterIndex + 1)
                     IconButton(onClick = { next?.let { player.seekTo(it.startMs) } }, enabled = next != null) {
                         Icon(Icons.Default.SkipNext, contentDescription = "Next chapter")
                     }
                 } else {
-                    Button(onClick = { onPlay(null) }, modifier = Modifier.weight(1f).height(48.dp)) {
+                    PrimaryButton(onClick = { onPlay(null) }, modifier = Modifier.weight(1.3f).height(48.dp)) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(if (positionMs > 0 && !episode.played) "Resume" else "Play now")
                     }
-                    FilledTonalButton(
+                    SecondaryButton(
                         onClick = onPlayNext,
                         enabled = queueIndex == null || queueIndex > 1,
                         modifier = Modifier.weight(1f).height(48.dp),
@@ -467,15 +536,14 @@ private fun previousChapter(player: Player, chapters: List<Chapter>) {
     player.seekTo(chapters[target].startMs)
 }
 
-private fun notPlayingStatus(played: Boolean, positionMs: Long, durationMs: Long, chapterCount: Int, queueIndex: Int?): String {
+private fun notPlayingStatus(played: Boolean, positionMs: Long, durationMs: Long, queueIndex: Int?): String {
     val parts = mutableListOf<String>()
     parts += when {
         played -> "Played"
         positionMs > 0 && durationMs > 0 -> "${formatMinutes(durationMs - positionMs)} left"
         else -> "Not started"
     }
-    if (chapterCount > 0) parts += "$chapterCount chapters"
-    queueIndex?.let { parts += "${ordinal(it + 1)} in queue" }
+    queueIndex?.let { parts += "${ordinal(it + 1)} in your queue" }
     return parts.joinToString(" · ")
 }
 

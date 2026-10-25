@@ -14,6 +14,7 @@ class PodcastRepository(
     private val context: Context,
     private val db: AppDatabase,
     private val client: OkHttpClient,
+    private val settings: SettingsStore,
 ) {
     private val podcasts = db.podcastDao()
     private val episodes = db.episodeDao()
@@ -59,7 +60,7 @@ class PodcastRepository(
         podcasts.delete(podcastId)
     }
 
-    /** Checks every feed for new episodes and starts downloading them. */
+    /** Checks every feed for new episodes and, if auto-download is on, starts downloading them. */
     suspend fun refreshAll() {
         for (podcast in podcasts.getAll()) {
             try {
@@ -85,7 +86,7 @@ class PodcastRepository(
         episodes.updateAllMetadata(podcast.id, old)
         val ids = episodes.insertAll(fresh.map { it.toEntity(podcast.id) })
         saveInlineChapters(podcast.id, feed.episodes)
-        ids.filter { it > 0 }.forEach { startDownload(it) }
+        if (settings.current.autoDownload) ids.filter { it > 0 }.forEach { startDownload(it) }
     }
 
     /** Stores chapters given inline in the feed, for episodes whose chapters aren't loaded yet. */
@@ -165,9 +166,9 @@ class PodcastRepository(
         episodes.removeFromQueue(episodeId, System.currentTimeMillis())
     }
 
-    /** Deletes the files of episodes that have been out of the queue for longer than [DOWNLOAD_RETENTION_MS]. */
+    /** Deletes the files of episodes that have been out of the queue for longer than the "keep" setting. */
     suspend fun deleteExpiredDownloads() {
-        val cutoff = System.currentTimeMillis() - DOWNLOAD_RETENTION_MS
+        val cutoff = System.currentTimeMillis() - settings.current.keepDays * DAY_MS
         for (episode in episodes.getExpiredDownloads(cutoff)) {
             episode.localPath?.let { File(it).delete() }
             episodes.setDownload(episode.id, DownloadState.NONE, null)
@@ -234,6 +235,6 @@ class PodcastRepository(
 
     companion object {
         private const val TAG = "PodcastRepository"
-        private const val DOWNLOAD_RETENTION_MS = 7L * 24 * 60 * 60 * 1000
+        private const val DAY_MS = 24L * 60 * 60 * 1000
     }
 }
