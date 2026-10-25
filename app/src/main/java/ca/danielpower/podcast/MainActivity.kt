@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
@@ -146,10 +145,11 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
     val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
     val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
 
-    // The mini player and tab bar sit underneath the screens. Tab screens stop above them; the
-    // episode screen and Settings are full height and opaque, so they cover them. That way nothing
-    // pops in or resizes while the episode screen opens or closes over the screen below.
+    // The mini player and tab bar sit underneath the screens. Tab screens stop above them, the
+    // episode screen covers the mini player but stops above the tab bar, and Settings covers both.
+    // That way nothing pops in or resizes while a screen opens or closes over the one below.
     var chromeHeight by remember { mutableStateOf(0.dp) }
+    var tabBarHeight by remember { mutableStateOf(0.dp) }
     val density = LocalDensity.current
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
@@ -166,7 +166,7 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                 skipForwardSeconds = appSettings.skipForwardSeconds,
                 onClick = { playerState.episodeId?.let(openEpisode) },
             )
-            BottomBar(navController)
+            BottomBar(navController, Modifier.onSizeChanged { tabBarHeight = with(density) { it.height.toDp() } })
         }
         NavHost(
             navController = navController,
@@ -264,7 +264,8 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                 EPISODE_ROUTE,
                 arguments = listOf(navArgument("episodeId") { type = NavType.LongType }),
             ) {
-                FullPage {
+                // Covers the mini player (it would only repeat the controls) but not the tab bar.
+                FullPage(aboveHeight = tabBarHeight) {
                     val vm: EpisodeViewModel = viewModel(factory = AppViewModelFactory)
                     val episode by vm.episode.collectAsStateWithLifecycle()
                     val chapters by vm.chapters.collectAsStateWithLifecycle()
@@ -296,6 +297,11 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
 }
 
 private const val EPISODE_ROUTE = "episode/{episodeId}"
+
+private fun tabFor(route: String): Tab = when {
+    route == SEARCH_ROUTE || route.startsWith("podcast/") -> Tab.Podcasts
+    else -> Tab.entries.firstOrNull { it.route == route } ?: Tab.Queue
+}
 private const val SETTINGS_ROUTE = "settings"
 private const val SEARCH_ROUTE = "search"
 private const val FADE_MS = 200
@@ -330,12 +336,18 @@ private fun TabPage(chromeHeight: Dp, content: @Composable () -> Unit) {
     }
 }
 
-/** A full-height opaque screen that covers the mini player and tab bar, touches included. */
+/**
+ * An opaque screen that covers the mini player and tab bar, touches included, or with
+ * [aboveHeight], everything but the bottom [aboveHeight] of them.
+ */
 @Composable
-private fun FullPage(content: @Composable () -> Unit) {
+private fun FullPage(aboveHeight: Dp = 0.dp, content: @Composable () -> Unit) {
+    val below = PaddingValues(bottom = aboveHeight)
     Box(
         Modifier
             .fillMaxSize()
+            .padding(below)
+            .consumeWindowInsets(below)
             .background(MaterialTheme.colorScheme.surface)
             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
     ) {
@@ -344,27 +356,33 @@ private fun FullPage(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun BottomBar(navController: NavHostController) {
+private fun BottomBar(navController: NavHostController, modifier: Modifier = Modifier) {
     val backStack by navController.currentBackStackEntryAsState()
-    val destination = backStack?.destination
-    PaperNavBar {
+    // An episode belongs to the tab it was opened from.
+    val current = if (backStack?.destination?.route == EPISODE_ROUTE) navController.previousBackStackEntry else backStack
+    val currentTab = current?.destination?.route?.let(::tabFor)
+    PaperNavBar(modifier) {
         for (tab in Tab.entries) {
-            val selected = destination?.hierarchy?.any { it.route == tab.route } == true ||
-                (tab == Tab.Podcasts && destination?.route?.let { it == SEARCH_ROUTE || it.startsWith("podcast/") } == true)
+            val selected = tab == currentTab
             PaperNavItem(
                 label = tab.label,
                 icon = tab.icon,
                 selected = selected,
                 onClick = {
-                    // Leaving the Podcasts tab drops a search in progress, so it isn't restored
-                    // (with the keyboard popping up) when the tab is opened again.
-                    if (runCatching { navController.getBackStackEntry(SEARCH_ROUTE) }.isSuccess) {
-                        navController.popBackStack(SEARCH_ROUTE, inclusive = true)
-                    }
-                    navController.navigate(tab.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
+                    // Tapping the open tab goes back to its top, closing an episode or podcast.
+                    if (selected) {
+                        navController.popBackStack(tab.route, inclusive = false)
+                    } else {
+                        // Leaving the Podcasts tab drops a search in progress, so it isn't restored
+                        // (with the keyboard popping up) when the tab is opened again.
+                        if (runCatching { navController.getBackStackEntry(SEARCH_ROUTE) }.isSuccess) {
+                            navController.popBackStack(SEARCH_ROUTE, inclusive = true)
+                        }
+                        navController.navigate(tab.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 },
             )
