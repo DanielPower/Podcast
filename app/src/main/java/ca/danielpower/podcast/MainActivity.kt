@@ -2,9 +2,11 @@ package ca.danielpower.podcast
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,12 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +37,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.playback.PlayerConnection
 import ca.danielpower.podcast.playback.rememberPlayerUiState
@@ -50,10 +50,14 @@ import ca.danielpower.podcast.ui.PodcastDetailViewModel
 import ca.danielpower.podcast.ui.PodcastTheme
 import ca.danielpower.podcast.ui.PodcastsScreen
 import ca.danielpower.podcast.ui.PodcastsViewModel
+import ca.danielpower.podcast.ui.PaperNavBar
+import ca.danielpower.podcast.ui.PaperNavItem
 import ca.danielpower.podcast.ui.QueueScreen
 import ca.danielpower.podcast.ui.QueueViewModel
 import ca.danielpower.podcast.ui.SearchScreen
 import ca.danielpower.podcast.ui.SearchViewModel
+import ca.danielpower.podcast.ui.SettingsScreen
+import ca.danielpower.podcast.ui.isDark
 import ca.danielpower.podcast.work.Refresh
 import kotlinx.coroutines.flow.flowOf
 
@@ -76,8 +80,19 @@ class MainActivity : ComponentActivity() {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         setContent {
-            PodcastTheme {
-                App(connectionState.value)
+            val appSettings by settings.settings.collectAsStateWithLifecycle()
+            val dark = appSettings.themeMode.isDark()
+            // The theme can differ from the system's, so the status bar icons follow the theme.
+            LaunchedEffect(dark) {
+                val style = if (dark) {
+                    SystemBarStyle.dark(Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+            PodcastTheme(appSettings.scheme, dark) {
+                App(connectionState.value, appSettings, dark)
             }
         }
     }
@@ -101,7 +116,7 @@ private enum class Tab(val route: String, val label: String, val icon: ImageVect
 }
 
 @Composable
-private fun App(connection: PlayerConnection?) {
+private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: Boolean) {
     val navController = rememberNavController()
     val player = connection?.controller
     val playerState = rememberPlayerUiState(player)
@@ -110,18 +125,21 @@ private fun App(connection: PlayerConnection?) {
         playerState.episodeId?.let { context.repository.observeChapters(it) } ?: flowOf(emptyList<Chapter>())
     }.collectAsStateWithLifecycle(emptyList())
     val backStack by navController.currentBackStackEntryAsState()
-    // The episode screen is full height: it has its own player controls at the bottom.
-    val onEpisodeScreen = backStack?.destination?.route == EPISODE_ROUTE
+    // The episode screen is full height (it has its own player controls at the bottom), and so is Settings.
+    val fullScreen = backStack?.destination?.route.let { it == EPISODE_ROUTE || it == SETTINGS_ROUTE }
     val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
+    val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
 
     Scaffold(
         bottomBar = {
-            if (!onEpisodeScreen) {
+            if (!fullScreen) {
                 Column {
                     MiniPlayer(
                         state = playerState,
                         player = player,
                         chapters = playingChapters,
+                        skipBackSeconds = appSettings.skipBackSeconds,
+                        skipForwardSeconds = appSettings.skipForwardSeconds,
                         onClick = { playerState.episodeId?.let(openEpisode) },
                     )
                     BottomBar(navController)
@@ -139,11 +157,13 @@ private fun App(connection: PlayerConnection?) {
                 val queue by vm.queue.collectAsStateWithLifecycle()
                 QueueScreen(
                     queue = queue,
-                    playingEpisodeId = playerState.episodeId,
+                    playerState = playerState,
+                    playingChapters = playingChapters,
                     onOpen = openEpisode,
                     onReorder = vm::reorder,
                     onDismiss = vm::dismiss,
                     onRetryDownload = vm::retryDownload,
+                    onOpenSettings = openSettings,
                 )
             }
             composable(Tab.Podcasts.route) {
@@ -154,6 +174,20 @@ private fun App(connection: PlayerConnection?) {
                     onOpen = { navController.navigate("podcast/$it") },
                     onSearch = { navController.navigate("search") },
                     onRefresh = { Refresh.now(context) },
+                    onOpenSettings = openSettings,
+                )
+            }
+            composable(SETTINGS_ROUTE) {
+                SettingsScreen(
+                    settings = appSettings,
+                    dark = dark,
+                    onChange = { change ->
+                        val before = context.settings.current
+                        context.settings.update(change)
+                        // Wi-Fi only changes the network the hourly refresh waits for.
+                        if (context.settings.current.wifiOnly != before.wifiOnly) Refresh.schedulePeriodic(context)
+                    },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("search") {
@@ -199,6 +233,8 @@ private fun App(connection: PlayerConnection?) {
                     queueIndex = queueIndex,
                     player = player,
                     playerState = playerState,
+                    skipBackSeconds = appSettings.skipBackSeconds,
+                    skipForwardSeconds = appSettings.skipForwardSeconds,
                     onBack = { navController.popBackStack() },
                     onPlay = { startMs ->
                         vm.prepareToPlay()
@@ -214,16 +250,19 @@ private fun App(connection: PlayerConnection?) {
 }
 
 private const val EPISODE_ROUTE = "episode/{episodeId}"
+private const val SETTINGS_ROUTE = "settings"
 
 @Composable
 private fun BottomBar(navController: NavHostController) {
     val backStack by navController.currentBackStackEntryAsState()
     val destination = backStack?.destination
-    NavigationBar {
+    PaperNavBar {
         for (tab in Tab.entries) {
             val selected = destination?.hierarchy?.any { it.route == tab.route } == true ||
                 (tab == Tab.Podcasts && destination?.route?.let { it == "search" || it.startsWith("podcast/") } == true)
-            NavigationBarItem(
+            PaperNavItem(
+                label = tab.label,
+                icon = tab.icon,
                 selected = selected,
                 onClick = {
                     navController.navigate(tab.route) {
@@ -232,8 +271,6 @@ private fun BottomBar(navController: NavHostController) {
                         restoreState = true
                     }
                 },
-                icon = { Icon(tab.icon, contentDescription = null) },
-                label = { Text(tab.label) },
             )
         }
     }

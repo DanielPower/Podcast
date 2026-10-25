@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -19,11 +18,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -34,17 +31,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.DirectoryResult
-import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,7 +66,7 @@ fun SearchScreen(
                     TextField(
                         value = state.query,
                         onValueChange = onQueryChange,
-                        placeholder = { Text("Search podcasts") },
+                        placeholder = { Text("Search for a podcast") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = {
@@ -134,17 +128,12 @@ private fun SearchResultRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = SideMargin, end = 16.dp, top = 10.dp, bottom = 10.dp),
     ) {
-        AsyncImage(
-            model = result.artworkUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
-        )
+        Artwork(result.artworkUrl, 56.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(result.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(result.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             result.author?.let {
                 Text(
                     it,
@@ -157,9 +146,9 @@ private fun SearchResultRow(
         }
         Spacer(Modifier.width(8.dp))
         when {
-            subscribing -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            subscribed -> OutlinedButton(onClick = {}, enabled = false) { Text("Subscribed") }
-            else -> FilledTonalButton(onClick = onSubscribe) { Text("Subscribe") }
+            subscribing -> CircularProgressIndicator(Modifier.size(24.dp), color = MaterialTheme.colorScheme.tertiary, strokeWidth = 2.dp)
+            subscribed -> Text("Subscribed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.podcastColors.done)
+            else -> SecondaryButton(onClick = onSubscribe) { Text("Subscribe") }
         }
     }
 }

@@ -1,6 +1,7 @@
 package ca.danielpower.podcast.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -38,14 +38,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.Podcast
-import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,7 +93,7 @@ fun PodcastDetailScreen(
                     onClick = { onOpenEpisode(item.episode.id) },
                     onAddToQueue = { onAddToQueue(item.episode.id) },
                 )
-                HorizontalDivider()
+                HorizontalDivider(Modifier.padding(horizontal = SideMargin), color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
@@ -110,7 +107,7 @@ fun PodcastDetailScreen(
                 TextButton(onClick = {
                     confirmUnsubscribe = false
                     onUnsubscribe()
-                }) { Text("Unsubscribe") }
+                }) { Text("Unsubscribe", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmUnsubscribe = false }) { Text("Cancel") }
@@ -121,30 +118,27 @@ fun PodcastDetailScreen(
 
 @Composable
 private fun Header(podcast: Podcast) {
-    Row(Modifier.padding(16.dp)) {
-        AsyncImage(
-            model = podcast.artworkUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(96.dp).clip(RoundedCornerShape(10.dp)),
-        )
+    Row(Modifier.padding(start = SideMargin, end = SideMargin, top = 8.dp, bottom = 16.dp)) {
+        Artwork(podcast.artworkUrl, 96.dp)
         Spacer(Modifier.width(16.dp))
-        Column {
-            Text(podcast.title, style = MaterialTheme.typography.titleMedium)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(podcast.title, style = MaterialTheme.typography.titleLarge)
             podcast.author?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
             }
             podcast.description?.let {
                 Text(
                     it,
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
         }
     }
+    SectionLabel("Episodes", Modifier.padding(horizontal = SideMargin, vertical = 6.dp))
 }
 
 @Composable
@@ -152,12 +146,12 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
     val episode = item.episode
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = SideMargin, end = 4.dp, top = 10.dp, bottom = 10.dp),
     ) {
         Column(Modifier.weight(1f)) {
             Text(
                 episode.title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 color = if (episode.played) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
@@ -168,14 +162,14 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
                     episode.durationMs?.let(::formatDuration),
                     "Played".takeIf { episode.played },
                 ).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         when {
             episode.downloadState == DownloadState.QUEUED || episode.downloadState == DownloadState.DOWNLOADING ->
                 IconButton(onClick = {}, enabled = false) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.tertiary, strokeWidth = 2.dp)
                 }
             episode.queuePosition != null && episode.downloadState != DownloadState.FAILED ->
                 IconButton(onClick = {}, enabled = false) {
@@ -183,7 +177,7 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
                 }
             else -> IconButton(onClick = onAddToQueue) {
                 if (episode.downloadState == DownloadState.FAILED) {
-                    Icon(Icons.Default.ErrorOutline, contentDescription = "Download failed, retry")
+                    Icon(Icons.Default.ErrorOutline, contentDescription = "Download failed, retry", tint = MaterialTheme.colorScheme.error)
                 } else {
                     Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "Add to queue")
                 }

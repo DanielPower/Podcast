@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.repository
+import ca.danielpower.podcast.settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -21,8 +22,9 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-private val networkConstraints = Constraints.Builder()
-    .setRequiredNetworkType(NetworkType.CONNECTED)
+/** Any network, or only an unmetered one (Wi-Fi) when that setting is on. */
+private fun networkConstraints(context: Context) = Constraints.Builder()
+    .setRequiredNetworkType(if (context.settings.current.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
     .build()
 
 object Refresh {
@@ -31,15 +33,15 @@ object Refresh {
 
     fun schedulePeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<RefreshWorker>(1, TimeUnit.HOURS)
-            .setConstraints(networkConstraints)
+            .setConstraints(networkConstraints(context))
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
+            .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
     fun now(context: Context) {
         val request = OneTimeWorkRequestBuilder<RefreshWorker>()
-            .setConstraints(networkConstraints)
+            .setConstraints(networkConstraints(context))
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, request)
     }
@@ -61,7 +63,7 @@ object Downloads {
 
     fun enqueue(context: Context, episodeId: Long) {
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
-            .setConstraints(networkConstraints)
+            .setConstraints(networkConstraints(context))
             .setInputData(workDataOf(KEY_EPISODE_ID to episodeId))
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(name(episodeId), ExistingWorkPolicy.KEEP, request)
