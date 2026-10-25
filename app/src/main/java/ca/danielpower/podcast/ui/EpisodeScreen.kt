@@ -86,9 +86,14 @@ fun EpisodeScreen(
     onRemoveFromQueue: () -> Unit,
 ) {
     val isCurrent = item != null && player != null && playerState.episodeId == item.episode.id
-    // Until the user picks a tab, show Chapters if there are any (they load after the screen opens).
+    // Until the user picks a tab: Chapters if this episode is playing, otherwise Notes. Chosen once,
+    // when the episode has loaded (nothing below the top bar shows before then), so it doesn't
+    // flip while the screen is open.
+    val defaultTab = rememberSaveable(item != null) {
+        (if (isCurrent) EpisodeTab.Chapters else EpisodeTab.Notes).ordinal
+    }
     var pickedTab by rememberSaveable { mutableIntStateOf(-1) }
-    val tab = if (pickedTab >= 0) pickedTab else if (chapters.isNotEmpty()) 0 else 1
+    val tab = if (pickedTab >= 0) pickedTab else defaultTab
 
     val positionMs = if (isCurrent) playerState.positionMs else item?.episode?.positionMs ?: 0
     val durationMs = if (isCurrent && playerState.durationMs > 0) {
