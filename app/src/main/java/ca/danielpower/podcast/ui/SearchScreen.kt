@@ -44,7 +44,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import ca.danielpower.podcast.data.DirectoryResult
+import kotlinx.coroutines.flow.first
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,8 +65,12 @@ fun SearchScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     // Focus (and so the keyboard) only on first open, not when coming back from a podcast's page.
     var focusedOnce by rememberSaveable { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(Unit) {
         if (!focusedOnce) {
+            // The page is resumed once it has finished sliding in. Opening the keyboard before then
+            // animates it, and resizes the page, in the middle of the slide.
+            lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
             focusedOnce = true
             focus.requestFocus()
         }

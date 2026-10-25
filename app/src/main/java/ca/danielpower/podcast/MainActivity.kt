@@ -60,6 +60,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.Chapter
+import ca.danielpower.podcast.data.DownloadProgress
 import ca.danielpower.podcast.playback.PlayerConnection
 import ca.danielpower.podcast.playback.rememberPlayerUiState
 import ca.danielpower.podcast.ui.AppViewModelFactory
@@ -89,6 +90,8 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
+    // Connected for the activity's whole life rather than only while it's visible: reconnecting on
+    // every return to the app made the mini player vanish and pop back, resizing every page.
     private var connection: PlayerConnection? = null
     private val connectionState = mutableStateOf<PlayerConnection?>(null)
 
@@ -97,6 +100,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        connection = PlayerConnection(this).also { connectionState.value = it }
         enableEdgeToEdge()
         if (savedInstanceState == null) Refresh.now(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -123,16 +127,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        connection = PlayerConnection(this).also { connectionState.value = it }
-    }
-
-    override fun onStop() {
+    override fun onDestroy() {
         connectionState.value = null
         connection?.release()
         connection = null
-        super.onStop()
+        super.onDestroy()
     }
 }
 
@@ -196,8 +195,10 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
                 TabPage(chromeHeight) {
                     val vm: QueueViewModel = viewModel(factory = AppViewModelFactory)
                     val queue by vm.queue.collectAsStateWithLifecycle()
+                    val downloadProgress by DownloadProgress.all.collectAsStateWithLifecycle()
                     QueueScreen(
                         queue = queue,
+                        downloadProgress = downloadProgress,
                         playerState = playerState,
                         playingChapters = playingChapters,
                         onOpen = openEpisode,

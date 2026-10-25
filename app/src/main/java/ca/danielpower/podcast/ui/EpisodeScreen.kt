@@ -139,11 +139,11 @@ fun EpisodeScreen(
     var tab by rememberSaveable { mutableIntStateOf(EpisodeTab.Notes.ordinal) }
     var speedSheetOpen by remember { mutableStateOf(false) }
 
-    val positionMs = if (isCurrent) playerState.positionMs else item?.episode?.positionMs ?: 0
-    val durationMs = if (isCurrent && playerState.durationMs > 0) {
-        playerState.durationMs
-    } else {
-        item?.episode?.durationMs ?: 0
+    // Read only by the parts that show them, so the rest of the screen doesn't recompose twice a
+    // second while playing.
+    val positionMs: () -> Long = { if (isCurrent) playerState.positionMs else item?.episode?.positionMs ?: 0 }
+    val durationMs: () -> Long = {
+        if (isCurrent && playerState.durationMs > 0) playerState.durationMs else item?.episode?.durationMs ?: 0
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
@@ -167,8 +167,7 @@ fun EpisodeScreen(
                 when (EpisodeTab.entries[tab]) {
                     EpisodeTab.Chapters -> ChapterList(
                         chapters = chapters,
-                        current = if (isCurrent) chapters.chapterAt(positionMs) else null,
-                        positionMs = if (isCurrent) positionMs else 0,
+                        positionMs = if (isCurrent) positionMs else null,
                         onChapter = { chapter ->
                             if (isCurrent) player?.seekTo(chapter.startMs) else onPlay(chapter.startMs)
                         },
@@ -184,8 +183,8 @@ fun EpisodeScreen(
             queueIndex = queueIndex,
             isCurrent = isCurrent,
             isPlaying = isCurrent && playerState.isPlaying,
-            positionMs = positionMs,
-            durationMs = durationMs,
+            readPosition = positionMs,
+            readDuration = durationMs,
             player = player,
             skipBackSeconds = skipBackSeconds,
             skipForwardSeconds = skipForwardSeconds,
@@ -307,18 +306,21 @@ private fun Header(item: EpisodeWithPodcast) {
     }
 }
 
+/** [positionMs] is null when the episode isn't the one playing, so no chapter is current. */
 @Composable
-private fun ChapterList(chapters: List<Chapter>, current: Chapter?, positionMs: Long, onChapter: (Chapter) -> Unit) {
+private fun ChapterList(chapters: List<Chapter>, positionMs: (() -> Long)?, onChapter: (Chapter) -> Unit) {
     if (chapters.isEmpty()) {
         EmptyMessage("This episode has no chapters.")
         return
     }
+    val position = positionMs?.invoke() ?: 0
+    val current = if (positionMs != null) chapters.chapterAt(position) else null
     val colors = MaterialTheme.colorScheme
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(chapters, key = { _, chapter -> chapter.startMs }) { index, chapter ->
             val selected = chapter == current
             // Chapters already played (before the current one) fade to the secondary ink.
-            val past = current != null && !selected && chapter.startMs < positionMs
+            val past = current != null && !selected && chapter.startMs < position
             HorizontalDivider(color = colors.outlineVariant)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -365,7 +367,7 @@ private fun Notes(description: String?) {
         EmptyMessage("This episode has no show notes.")
         return
     }
-    val text = rememberFeedText(description)
+    val text = rememberFeedText(description) ?: return
     Text(
         text,
         style = MaterialTheme.typography.bodyMedium,
@@ -440,8 +442,8 @@ private fun BottomPane(
     queueIndex: Int?,
     isCurrent: Boolean,
     isPlaying: Boolean,
-    positionMs: Long,
-    durationMs: Long,
+    readPosition: () -> Long,
+    readDuration: () -> Long,
     player: Player?,
     skipBackSeconds: Int,
     skipForwardSeconds: Int,
@@ -452,6 +454,8 @@ private fun BottomPane(
 ) {
     if (item == null) return
     val episode = item.episode
+    val positionMs = readPosition()
+    val durationMs = readDuration()
     val chapter = chapters.chapterAt(positionMs)
     val chapterIndex = chapter?.let { chapters.indexOf(it) } ?: -1
     val colors = MaterialTheme.colorScheme

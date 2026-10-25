@@ -272,9 +272,6 @@ class PodcastRepository(
     suspend fun setDownloadState(episodeId: Long, state: DownloadState, localPath: String? = null) =
         episodes.setDownload(episodeId, state, localPath)
 
-    suspend fun setDownloadProgress(episodeId: Long, downloaded: Long, total: Long?) =
-        episodes.setDownloadProgress(episodeId, downloaded, total)
-
     suspend fun onDownloadComplete(episodeId: Long, file: File) =
         episodes.setDownload(episodeId, DownloadState.DOWNLOADED, file.absolutePath)
 
