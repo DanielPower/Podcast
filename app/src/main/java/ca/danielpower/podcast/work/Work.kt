@@ -47,7 +47,9 @@ object Refresh {
 
 class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        applicationContext.repository.refreshAll()
+        val repository = applicationContext.repository
+        repository.refreshAll()
+        repository.deleteExpiredDownloads()
         return Result.success()
     }
 }

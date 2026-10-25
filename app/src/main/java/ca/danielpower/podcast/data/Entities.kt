@@ -52,6 +52,8 @@ data class Episode(
     val played: Boolean = false,
     /** Position in the queue, or null when the episode is not queued. Lower plays first. */
     val queuePosition: Long? = null,
+    /** When the episode last left the queue. Its download is kept for a week after this. */
+    val removedFromQueueAt: Long? = null,
 )
 
 /** An episode along with the podcast it belongs to, for display. */

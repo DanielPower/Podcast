@@ -75,8 +75,18 @@ abstract class EpisodeDao {
     @Query("SELECT MIN(queuePosition) FROM episodes")
     abstract suspend fun minQueuePosition(): Long?
 
-    @Query("UPDATE episodes SET queuePosition = :position WHERE id = :id")
-    abstract suspend fun setQueuePosition(id: Long, position: Long?)
+    @Query("UPDATE episodes SET queuePosition = :position, removedFromQueueAt = NULL WHERE id = :id")
+    abstract suspend fun setQueuePosition(id: Long, position: Long)
+
+    @Query("UPDATE episodes SET queuePosition = NULL, removedFromQueueAt = :now WHERE id = :id")
+    abstract suspend fun removeFromQueue(id: Long, now: Long)
+
+    /** Downloaded episodes that left the queue before [cutoff]. */
+    @Query(
+        """SELECT * FROM episodes WHERE queuePosition IS NULL AND localPath IS NOT NULL
+        AND removedFromQueueAt IS NOT NULL AND removedFromQueueAt < :cutoff""",
+    )
+    abstract suspend fun getExpiredDownloads(cutoff: Long): List<Episode>
 
     @Query("UPDATE episodes SET downloadState = :state, localPath = :localPath WHERE id = :id")
     abstract suspend fun setDownload(id: Long, state: DownloadState, localPath: String?)

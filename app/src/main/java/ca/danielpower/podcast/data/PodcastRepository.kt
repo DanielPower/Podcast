@@ -100,17 +100,24 @@ class PodcastRepository(
 
     suspend fun reorderQueue(orderedIds: List<Long>) = episodes.reorderQueue(orderedIds)
 
-    /** Removes an episode from the queue without marking it played, and frees its file. */
+    /** Removes an episode from the queue without marking it played. Its file is kept for a while. */
     suspend fun dismiss(episodeId: Long) {
-        episodes.setQueuePosition(episodeId, null)
-        deleteDownload(episodeId)
+        episodes.removeFromQueue(episodeId, System.currentTimeMillis())
     }
 
     /** Called when an episode plays to the end. */
     suspend fun markFinished(episodeId: Long) {
         episodes.markPlayed(episodeId)
-        episodes.setQueuePosition(episodeId, null)
-        deleteDownload(episodeId)
+        episodes.removeFromQueue(episodeId, System.currentTimeMillis())
+    }
+
+    /** Deletes the files of episodes that have been out of the queue for longer than [DOWNLOAD_RETENTION_MS]. */
+    suspend fun deleteExpiredDownloads() {
+        val cutoff = System.currentTimeMillis() - DOWNLOAD_RETENTION_MS
+        for (episode in episodes.getExpiredDownloads(cutoff)) {
+            episode.localPath?.let { File(it).delete() }
+            episodes.setDownload(episode.id, DownloadState.NONE, null)
+        }
     }
 
     suspend fun savePosition(episodeId: Long, positionMs: Long) = episodes.setPosition(episodeId, positionMs)
@@ -138,13 +145,6 @@ class PodcastRepository(
         Downloads.enqueue(context, episodeId)
     }
 
-    private suspend fun deleteDownload(episodeId: Long) {
-        Downloads.cancel(context, episodeId)
-        val episode = episodes.get(episodeId) ?: return
-        episode.localPath?.let { File(it).delete() }
-        episodes.setDownload(episodeId, DownloadState.NONE, null)
-    }
-
     private suspend fun fetchFeed(url: String): ParsedFeed = withContext(Dispatchers.IO) {
         client.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code} for $url")
@@ -165,5 +165,6 @@ class PodcastRepository(
 
     companion object {
         private const val TAG = "PodcastRepository"
+        private const val DOWNLOAD_RETENTION_MS = 7L * 24 * 60 * 60 * 1000
     }
 }
