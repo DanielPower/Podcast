@@ -1,6 +1,7 @@
 package ca.danielpower.podcast
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
@@ -104,6 +105,9 @@ class MainActivity : ComponentActivity() {
     private var connection: PlayerConnection? = null
     private val connectionState = mutableStateOf<PlayerConnection?>(null)
 
+    // Set by a tap on the media notification, until Now Playing has been opened.
+    private val openNowPlaying = mutableStateOf(false)
+
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
@@ -111,7 +115,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         connection = PlayerConnection(this).also { connectionState.value = it }
         enableEdgeToEdge()
-        if (savedInstanceState == null) Refresh.now(this)
+        if (savedInstanceState == null) {
+            Refresh.now(this)
+            // Not when reopened from recents, which replays the intent that first started the app.
+            openNowPlaying.value = intent?.action == ACTION_OPEN_NOW_PLAYING &&
+                (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -131,9 +140,20 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
             PodcastTheme(appSettings.scheme, dark) {
-                App(connectionState.value, appSettings, dark)
+                App(
+                    connectionState.value,
+                    appSettings,
+                    dark,
+                    openNowPlaying = openNowPlaying.value,
+                    onNowPlayingOpened = { openNowPlaying.value = false },
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == ACTION_OPEN_NOW_PLAYING) openNowPlaying.value = true
     }
 
     override fun onDestroy() {
@@ -141,6 +161,11 @@ class MainActivity : ComponentActivity() {
         connection?.release()
         connection = null
         super.onDestroy()
+    }
+
+    companion object {
+        /** The media notification opens the app with this action to show Now Playing. */
+        const val ACTION_OPEN_NOW_PLAYING = "ca.danielpower.podcast.OPEN_NOW_PLAYING"
     }
 }
 
@@ -151,7 +176,13 @@ private enum class Tab(val route: String, val label: String, val icon: ImageVect
 }
 
 @Composable
-private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: Boolean) {
+private fun App(
+    connection: PlayerConnection?,
+    appSettings: AppSettings,
+    dark: Boolean,
+    openNowPlaying: Boolean,
+    onNowPlayingOpened: () -> Unit,
+) {
     val navController = rememberNavController()
     val player = connection?.controller
     val playerState = rememberPlayerUiState(player)
@@ -162,6 +193,14 @@ private fun App(connection: PlayerConnection?, appSettings: AppSettings, dark: B
     }.collectAsStateWithLifecycle(emptyList())
     val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
     val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
+
+    // From a notification tap. On a cold start this waits for the player to connect, and the
+    // episode is read when the effect runs, after the player state has caught up.
+    LaunchedEffect(openNowPlaying, player) {
+        if (!openNowPlaying || player == null) return@LaunchedEffect
+        playerState.episodeId?.let(openEpisode)
+        onNowPlayingOpened()
+    }
 
     // The mini player and tab bar sit underneath the screens. Tab screens stop above them, the
     // episode screen covers the mini player but stops above the tab bar, and Settings covers both.

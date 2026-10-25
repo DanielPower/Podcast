@@ -88,7 +88,10 @@ fun SearchScreen(
                         if (state.query.isNotEmpty()) {
                             IconButton(onClick = {
                                 onClear()
+                                // The field usually still has focus after a search, with the keyboard
+                                // hidden, so focusing it alone wouldn't bring the keyboard back.
                                 focus.requestFocus()
+                                keyboard?.show()
                             }) {
                                 Icon(Icons.Default.Close, contentDescription = "Clear search")
                             }
