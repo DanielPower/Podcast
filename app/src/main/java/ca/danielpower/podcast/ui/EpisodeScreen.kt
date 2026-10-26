@@ -29,14 +29,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -135,8 +132,6 @@ fun EpisodeScreen(
     onBack: () -> Unit,
     onPlay: (startMs: Long?) -> Unit,
     onPlayNext: () -> Unit,
-    onAddToQueue: () -> Unit,
-    onRemoveFromQueue: () -> Unit,
 ) {
     val isCurrent = item != null && player != null && playerState.episodeId == item.episode.id
     var tab by rememberSaveable { mutableIntStateOf(EpisodeTab.Notes.ordinal) }
@@ -150,7 +145,7 @@ fun EpisodeScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-        TopBar(item, isCurrent, queueIndex, onBack, onAddToQueue, onRemoveFromQueue)
+        TopBar(item, isCurrent, onBack)
         if (item == null) return@Column
         Column(Modifier.weight(1f)) {
             Header(item)
@@ -218,12 +213,8 @@ fun EpisodeScreen(
 private fun TopBar(
     item: EpisodeWithPodcast?,
     isCurrent: Boolean,
-    queueIndex: Int?,
     onBack: () -> Unit,
-    onAddToQueue: () -> Unit,
-    onRemoveFromQueue: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     Row(
         Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
@@ -240,13 +231,6 @@ private fun TopBar(
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f),
         )
-        // Leaving an episode before it ends is deliberate, so it's a labelled button up here rather
-        // than next to the player controls (where next and previous skip within the episode).
-        if (isCurrent) {
-            TextButton(onClick = onRemoveFromQueue) {
-                Text("Skip episode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-            }
-        }
         val link = item?.episode?.link
         if (link != null) {
             IconButton(onClick = { uriHandler.openUri(link) }) {
@@ -254,30 +238,6 @@ private fun TopBar(
             }
         } else {
             Spacer(Modifier.size(48.dp))
-        }
-        Box {
-            IconButton(onClick = { menuOpen = true }, enabled = item != null) {
-                Icon(Icons.Default.MoreVert, contentDescription = "More")
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (queueIndex == null) {
-                    DropdownMenuItem(
-                        text = { Text("Add to queue") },
-                        onClick = {
-                            menuOpen = false
-                            onAddToQueue()
-                        },
-                    )
-                } else {
-                    DropdownMenuItem(
-                        text = { Text("Remove from queue") },
-                        onClick = {
-                            menuOpen = false
-                            onRemoveFromQueue()
-                        },
-                    )
-                }
-            }
         }
     }
 }
