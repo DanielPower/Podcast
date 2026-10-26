@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -81,7 +82,12 @@ fun rememberPlayerUiState(player: Player?): PlayerUiState {
 
     fun update(p: Player) {
         val item = p.currentMediaItem
-        state.episodeId = item?.mediaId?.toLongOrNull()
+        val id = item?.mediaId?.toLongOrNull()
+        // Right after switching episodes the player has the new item but not yet its position,
+        // duration or metadata. Keep showing the old episode until it has them, rather than
+        // flashing a frame of empty progress and times.
+        if (id != null && state.episodeId != null && id != state.episodeId && loading(p)) return
+        state.episodeId = id
         state.title = item?.mediaMetadata?.title?.toString()
         state.podcastTitle = item?.mediaMetadata?.artist?.toString()
         state.artworkUri = item?.mediaMetadata?.artworkUri?.toString()
@@ -105,10 +111,16 @@ fun rememberPlayerUiState(player: Player?): PlayerUiState {
 
     LaunchedEffect(player, state.isPlaying) {
         while (player != null && state.isPlaying) {
-            state.positionMs = player.currentPosition
-            state.durationMs = player.duration.coerceAtLeast(0)
+            if (player.currentMediaItem?.mediaId?.toLongOrNull() == state.episodeId) {
+                state.positionMs = player.currentPosition
+                state.durationMs = player.duration.coerceAtLeast(0)
+            }
             delay(500)
         }
     }
     return state
 }
+
+/** Whether the player is still loading its current item and doesn't know its duration yet. */
+private fun loading(p: Player): Boolean =
+    p.playbackState == Player.STATE_BUFFERING && p.duration == C.TIME_UNSET
