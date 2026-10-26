@@ -556,10 +556,11 @@ private fun BottomBar(navController: NavHostController, modifier: Modifier = Mod
                     if (selected) {
                         navController.popBackStack(tab.route, inclusive = false)
                     } else {
+                        // Switching tabs always lands on the tab's root page; pages opened in the
+                        // tab we're leaving (podcast, episode, history...) are dropped, not saved.
                         navController.navigate(tab.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id)
                             launchSingleTop = true
-                            restoreState = true
                         }
                     }
                 },
