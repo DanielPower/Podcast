@@ -13,6 +13,8 @@ data class ParsedFeed(
     val artworkUrl: String?,
     val description: String?,
     val episodes: List<ParsedEpisode>,
+    /** Podcasting 2.0 `<podcast:funding>` links, in feed order. */
+    val funding: List<FundingLink> = emptyList(),
 )
 
 data class ParsedEpisode(
@@ -54,6 +56,7 @@ object FeedParser {
         var rssImage: String? = null
         var description: String? = null
         val episodes = mutableListOf<ParsedEpisode>()
+        val funding = mutableListOf<FundingLink>()
 
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             if (parser.eventType != XmlPullParser.START_TAG) continue
@@ -64,6 +67,10 @@ object FeedParser {
                 "description" -> if (description == null) description = readText(parser)
                 "itunes:summary" -> if (description == null) description = readText(parser)
                 "podcast:image" -> readPodcastImage(parser)?.let { podcastImages += it }
+                "podcast:funding" -> {
+                    val url = parser.getAttributeValue(null, "url")
+                    fundingLink(url, readText(parser))?.let { link -> if (funding.none { it.url == link.url }) funding += link }
+                }
                 "itunes:image" -> if (itunesImage == null) itunesImage = parser.getAttributeValue(null, "href")
                 "image" -> {
                     val url = readImageUrl(parser)
@@ -79,6 +86,7 @@ object FeedParser {
             artworkUrl = bestArtwork(podcastImages) ?: itunesImage?.trim()?.takeIf { it.isNotEmpty() } ?: rssImage,
             description = description?.trim(),
             episodes = episodes,
+            funding = funding,
         )
     }
 
@@ -137,6 +145,21 @@ object FeedParser {
             chaptersUrl = chaptersUrl?.trim()?.takeIf { it.isNotEmpty() },
             inlineChapters = inlineChapters,
         )
+    }
+
+    /**
+     * A `<podcast:funding>` link, or null unless [url] is http(s). The label is the tag's text, which
+     * the spec caps at 128 characters, else the site's host.
+     */
+    internal fun fundingLink(url: String?, text: String): FundingLink? {
+        val trimmed = url?.trim() ?: return null
+        val host = try {
+            java.net.URI(trimmed).takeIf { it.scheme.equals("http", true) || it.scheme.equals("https", true) }?.host
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val label = text.trim().replace(Regex("\\s+"), " ").take(128).ifEmpty { host.removePrefix("www.") }
+        return FundingLink(trimmed, label)
     }
 
     /** A Podcasting 2.0 `<podcast:image>`. */

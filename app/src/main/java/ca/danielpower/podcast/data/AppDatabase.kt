@@ -8,8 +8,10 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import org.json.JSONArray
+import org.json.JSONObject
 
-@Database(entities = [Podcast::class, Episode::class, Chapter::class, DailyStats::class], version = 6)
+@Database(entities = [Podcast::class, Episode::class, Chapter::class, DailyStats::class], version = 7)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
@@ -21,7 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, "podcast.db")
                 // Version 1 shipped only in pre-release test builds, with more than one schema.
                 .fallbackToDestructiveMigrationFrom(1)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
     }
 }
@@ -70,10 +72,30 @@ private val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+/** Adds podcasts' funding links. */
+private val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE podcasts ADD COLUMN funding TEXT NOT NULL DEFAULT '[]'")
+    }
+}
+
 class Converters {
     @TypeConverter
     fun fromDownloadState(state: DownloadState): String = state.name
 
     @TypeConverter
     fun toDownloadState(value: String): DownloadState = DownloadState.valueOf(value)
+
+    @TypeConverter
+    fun fromFundingLinks(links: List<FundingLink>): String =
+        JSONArray(links.map { JSONObject().put("url", it.url).put("label", it.label) }).toString()
+
+    @TypeConverter
+    fun toFundingLinks(value: String): List<FundingLink> {
+        val array = JSONArray(value)
+        return (0 until array.length()).map { i ->
+            val item = array.getJSONObject(i)
+            FundingLink(item.getString("url"), item.getString("label"))
+        }
+    }
 }

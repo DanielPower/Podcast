@@ -1,9 +1,13 @@
 package ca.danielpower.podcast.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,10 +19,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -34,11 +40,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
+import ca.danielpower.podcast.data.FundingLink
 import ca.danielpower.podcast.data.Podcast
 
 /**
@@ -72,6 +83,7 @@ fun PodcastDetailScreen(
                         author = podcast?.author ?: preview?.author,
                         artworkUrl = podcast?.artworkUrl ?: preview?.artworkUrl,
                         description = podcast?.description,
+                        funding = podcast?.funding.orEmpty(),
                         subscribed = podcast?.subscribed,
                         onSubscribe = onSubscribe,
                         onUnsubscribe = { confirmUnsubscribe = true },
@@ -122,12 +134,14 @@ fun PodcastDetailScreen(
 }
 
 /** [subscribed] is null while the feed is loading, which disables the button. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Header(
     title: String,
     author: String?,
     artworkUrl: String?,
     description: String?,
+    funding: List<FundingLink>,
     subscribed: Boolean?,
     onSubscribe: () -> Unit,
     onUnsubscribe: () -> Unit,
@@ -167,8 +181,51 @@ private fun Header(
             modifier = Modifier.fillMaxWidth().padding(start = SideMargin, end = SideMargin, top = 12.dp),
         )
     }
+    if (funding.isNotEmpty()) {
+        val uriHandler = LocalUriHandler.current
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = SideMargin, end = SideMargin, top = 12.dp),
+        ) {
+            for (link in funding) FundingChip(link.label, onClick = { uriHandler.openUri(link.url) })
+        }
+    }
     Spacer(Modifier.height(16.dp))
     SectionLabel("Episodes", Modifier.padding(horizontal = SideMargin, vertical = 6.dp))
+}
+
+/** A `<podcast:funding>` link, opened in the browser. */
+@Composable
+private fun FundingChip(label: String, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .height(34.dp)
+            .clip(PaperShape)
+            .border(1.dp, colors.outlineVariant, PaperShape)
+            .background(MaterialTheme.podcastColors.raised)
+            .clickable(role = Role.Button, onClickLabel = "Open in browser", onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(Icons.Outlined.FavoriteBorder, contentDescription = null, tint = colors.primary, modifier = Modifier.size(16.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Icon(
+            Icons.AutoMirrored.Filled.OpenInNew,
+            contentDescription = null,
+            tint = colors.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+    }
 }
 
 @Composable
