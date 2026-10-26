@@ -1,5 +1,12 @@
 package ca.danielpower.podcast.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +61,7 @@ import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.Episode
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.playback.PlayerUiState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -150,6 +158,9 @@ private fun QueueList(
     // A local copy that follows the drag; written back to the database when the drag ends.
     var items by remember { mutableStateOf(queue) }
     var dragging by remember { mutableStateOf(false) }
+    // The episode being dragged, and one dropped above the playing episode that is still taking over.
+    var draggedId by remember { mutableStateOf<Long?>(null) }
+    var takingOverId by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(queue) { if (!dragging) items = queue }
 
     val listState = rememberLazyListState()
@@ -162,7 +173,20 @@ private fun QueueList(
         }
     }
     val playingId = playerState.episodeId
-    val playingFirst = items.firstOrNull()?.episode?.id == playingId && playingId != null
+    LaunchedEffect(playingId) { if (playingId == takingOverId) takingOverId = null }
+    // If the player never switches (no controller, say), stop showing the dropped episode as playing.
+    LaunchedEffect(takingOverId) {
+        if (takingOverId != null) {
+            delay(2_000)
+            takingOverId = null
+        }
+    }
+    // The labels and rows show where the drag will leave things: a playable episode dragged above
+    // the playing one is shown as playing before it's dropped and takes over, so nothing reflows on drop.
+    val shownPlayingId = takingOverId ?: draggedId?.takeIf { id ->
+        takesOver(items, id, playingId)
+    } ?: playingId
+    val playingFirst = items.firstOrNull()?.episode?.id == shownPlayingId && shownPlayingId != null
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         items.forEachIndexed { index, item ->
@@ -196,7 +220,7 @@ private fun QueueList(
                                 item = item,
                                 progress = downloadProgress[item.episode.id],
                                 waitingForWifi = waitingForWifi,
-                                playing = item.episode.id == playingId,
+                                playing = item.episode.id == shownPlayingId,
                                 playerState = playerState,
                                 chapters = playingChapters,
                                 onClick = {
@@ -210,18 +234,19 @@ private fun QueueList(
                                     IconButton(
                                         onClick = {},
                                         modifier = Modifier.draggableHandle(
-                                            onDragStarted = { dragging = true },
+                                            onDragStarted = {
+                                                dragging = true
+                                                draggedId = item.episode.id
+                                            },
                                             onDragStopped = {
                                                 dragging = false
-                                                val order = items.map { it.episode.id }
-                                                onReorder(order)
+                                                draggedId = null
+                                                onReorder(items.map { it.episode.id })
                                                 // A downloaded episode dropped above the playing one
                                                 // takes over from it.
-                                                val playing = playerState.episodeId
                                                 val id = item.episode.id
-                                                if (playing != null && id != playing && item.isPlayable &&
-                                                    playing in order && order.indexOf(id) < order.indexOf(playing)
-                                                ) {
+                                                if (takesOver(items, id, playerState.episodeId)) {
+                                                    takingOverId = id
                                                     onSwitchTo(id)
                                                 }
                                             },
@@ -241,6 +266,14 @@ private fun QueueList(
             }
         }
     }
+}
+
+/** Whether episode [id] sits above the playing episode in [items] and can play, so dropping it there switches to it. */
+private fun takesOver(items: List<EpisodeWithPodcast>, id: Long, playingId: Long?): Boolean {
+    if (playingId == null || id == playingId) return false
+    val index = items.indexOfFirst { it.episode.id == id }
+    val playingIndex = items.indexOfFirst { it.episode.id == playingId }
+    return index >= 0 && playingIndex >= 0 && index < playingIndex && items[index].isPlayable
 }
 
 @Composable
@@ -281,6 +314,9 @@ private fun DismissibleRow(onDismiss: () -> Unit, content: @Composable () -> Uni
     }
 }
 
+/** How long a row takes to grow into, or shrink out of, its playing layout. */
+private const val RowChangeMs = 250
+
 @Composable
 private fun QueueRow(
     item: EpisodeWithPodcast,
@@ -302,7 +338,8 @@ private fun QueueRow(
             .clickable(onClick = onClick)
             .padding(start = SideMargin, top = 10.dp, bottom = 10.dp, end = 4.dp),
     ) {
-        Artwork(item.artworkUrl, if (playing) 60.dp else 52.dp, alpha = if (item.isPlayable) 1f else 0.55f)
+        val artSize by animateDpAsState(if (playing) 60.dp else 52.dp, tween(RowChangeMs), label = "artwork")
+        Artwork(item.artworkUrl, artSize, alpha = if (item.isPlayable) 1f else 0.55f)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -318,36 +355,52 @@ private fun QueueRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            when {
-                playing -> PlayingStatus(playerState, chapters)
-                !item.isPlayable && !failed -> {
-                    // Waiting for Wi-Fi could take hours, so no busy animation for it.
-                    val wifi = waitingForWifi && episode.downloadState == DownloadState.QUEUED
-                    if (wifi) {
-                        ThinBar(0f, MaterialTheme.colorScheme.tertiary, Modifier.width(120.dp).padding(top = 4.dp, bottom = 2.dp))
-                    } else {
-                        DownloadBar(episode, progress)
+            // The status grows into the seek bar (or shrinks back) when a row starts or stops playing.
+            AnimatedContent(
+                targetState = playing,
+                transitionSpec = {
+                    fadeIn(tween(RowChangeMs / 2, delayMillis = RowChangeMs / 2)) togetherWith
+                        fadeOut(tween(RowChangeMs / 2)) using SizeTransform(clip = false) { _, _ -> tween(RowChangeMs) }
+                },
+                label = "status",
+                modifier = Modifier.fillMaxWidth(),
+            ) { shownPlaying ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    when {
+                        // A row shown as playing ahead of the player switching to it shows its saved position.
+                        shownPlaying && episode.id == playerState.episodeId ->
+                            PlayingStatus(playerState.positionMs, playerState.durationMs, chapters)
+                        shownPlaying -> PlayingStatus(episode.positionMs, episode.durationMs ?: 0L, emptyList())
+                        !item.isPlayable && !failed -> {
+                            // Waiting for Wi-Fi could take hours, so no busy animation for it.
+                            val wifi = waitingForWifi && episode.downloadState == DownloadState.QUEUED
+                            if (wifi) {
+                                ThinBar(0f, MaterialTheme.colorScheme.tertiary, Modifier.width(120.dp).padding(top = 4.dp, bottom = 2.dp))
+                            } else {
+                                DownloadBar(episode, progress)
+                            }
+                            Text(
+                                if (wifi) "Waiting for Wi-Fi" else downloadStatus(episode, progress),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                        else -> {
+                            val duration = episode.durationMs
+                            if (!failed && duration != null && duration > 0 && episode.positionMs > 0) {
+                                ThinBar(
+                                    episode.positionMs.toFloat() / duration,
+                                    MaterialTheme.colorScheme.onSurface,
+                                    Modifier.width(120.dp).padding(top = 4.dp, bottom = 2.dp),
+                                )
+                            }
+                            Text(
+                                if (failed) downloadStatus(episode, null) else episodeSubtitle(item),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    Text(
-                        if (wifi) "Waiting for Wi-Fi" else downloadStatus(episode, progress),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                }
-                else -> {
-                    val duration = episode.durationMs
-                    if (!failed && duration != null && duration > 0 && episode.positionMs > 0) {
-                        ThinBar(
-                            episode.positionMs.toFloat() / duration,
-                            MaterialTheme.colorScheme.onSurface,
-                            Modifier.width(120.dp).padding(top = 4.dp, bottom = 2.dp),
-                        )
-                    }
-                    Text(
-                        if (failed) downloadStatus(episode, null) else episodeSubtitle(item),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
@@ -357,9 +410,7 @@ private fun QueueRow(
 
 /** The playing row's chapter-segmented progress, with which chapter it's in and the time left. */
 @Composable
-private fun PlayingStatus(playerState: PlayerUiState, chapters: List<Chapter>) {
-    val position = playerState.positionMs
-    val duration = playerState.durationMs
+private fun PlayingStatus(position: Long, duration: Long, chapters: List<Chapter>) {
     ChapterSeekBar(
         chapters = chapters,
         positionMs = position,
