@@ -24,9 +24,6 @@ interface PodcastDao {
     @Query("SELECT * FROM podcasts WHERE feedUrl = :feedUrl")
     suspend fun getByFeedUrl(feedUrl: String): Podcast?
 
-    @Query("SELECT feedUrl FROM podcasts WHERE subscribed = 1")
-    fun observeSubscribedFeedUrls(): Flow<List<String>>
-
     @Query("UPDATE podcasts SET subscribed = :subscribed, openedAt = :now WHERE id = :id")
     suspend fun setSubscribed(id: Long, subscribed: Boolean, now: Long)
 
@@ -79,9 +76,6 @@ interface PodcastDao {
         FROM podcasts p JOIN episodes c ON c.id = p.catchUpEpisodeId""",
     )
     fun observeCatchUps(): Flow<List<CatchUpProgress>>
-
-    @Query("DELETE FROM podcasts WHERE id = :id")
-    suspend fun delete(id: Long)
 }
 
 private const val EPISODE_WITH_PODCAST = """
@@ -89,19 +83,32 @@ private const val EPISODE_WITH_PODCAST = """
     FROM episodes e JOIN podcasts p ON p.id = e.podcastId
 """
 
+/**
+ * As [EPISODE_WITH_PODCAST], but leaving out the show notes, for lists. Lists don't show them, and
+ * they can run to many KB each: a long back catalogue's page read megabytes of them, and again every
+ * few seconds while playing, as each saved position re-runs the open queries.
+ */
+private const val EPISODE_LIST_ITEM = """
+    SELECT e.id, e.podcastId, e.guid, e.title, NULL AS description, e.audioUrl, e.publishedAt, e.durationMs,
+    e.artworkUrl, e.downloadState, e.localPath, e.downloadedBytes, e.downloadTotalBytes, e.positionMs, e.played,
+    e.queuePosition, e.removedFromQueueAt, e.link, e.seasonNumber, e.episodeNumber, e.chaptersUrl,
+    e.chaptersLoaded, e.lastPlayedAt, p.id AS podcast_id, p.title AS podcast_title, p.artworkUrl AS podcast_artworkUrl
+    FROM episodes e JOIN podcasts p ON p.id = e.podcastId
+"""
+
 @Dao
 abstract class EpisodeDao {
-    @Query("$EPISODE_WITH_PODCAST WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
+    @Query("$EPISODE_LIST_ITEM WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
     abstract fun observeQueue(): Flow<List<EpisodeWithPodcast>>
 
-    @Query("$EPISODE_WITH_PODCAST WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
+    @Query("$EPISODE_LIST_ITEM WHERE e.queuePosition IS NOT NULL ORDER BY e.queuePosition")
     abstract suspend fun getQueue(): List<EpisodeWithPodcast>
 
     /** Every episode that has been played, most recently played first. */
-    @Query("$EPISODE_WITH_PODCAST WHERE e.lastPlayedAt IS NOT NULL ORDER BY e.lastPlayedAt DESC")
+    @Query("$EPISODE_LIST_ITEM WHERE e.lastPlayedAt IS NOT NULL ORDER BY e.lastPlayedAt DESC")
     abstract fun observeHistory(): Flow<List<EpisodeWithPodcast>>
 
-    @Query("$EPISODE_WITH_PODCAST WHERE e.podcastId = :podcastId ORDER BY e.publishedAt DESC")
+    @Query("$EPISODE_LIST_ITEM WHERE e.podcastId = :podcastId ORDER BY e.publishedAt DESC")
     abstract fun observeForPodcast(podcastId: Long): Flow<List<EpisodeWithPodcast>>
 
     @Query("$EPISODE_WITH_PODCAST WHERE e.id = :id")
@@ -206,13 +213,22 @@ abstract class EpisodeDao {
      * Updates an episode already known with what the feed says now, so corrections (a new audio URL,
      * a fixed title) are picked up. The feed's duration is only taken for episodes never played:
      * once one has been, the player has stored its real length.
+     *
+     * Episodes the feed says nothing new about are left alone: rewriting every one of them, show notes
+     * and all, on each hourly refresh wrote megabytes for no change.
      */
     @Query(
         """UPDATE episodes SET title = :title, audioUrl = :audioUrl, artworkUrl = COALESCE(:artworkUrl, artworkUrl),
         publishedAt = CASE WHEN :publishedAt > 0 THEN :publishedAt ELSE publishedAt END,
         durationMs = CASE WHEN lastPlayedAt IS NULL THEN COALESCE(:durationMs, durationMs) ELSE durationMs END,
         link = :link, seasonNumber = :seasonNumber, episodeNumber = :episodeNumber,
-        chaptersUrl = :chaptersUrl, description = :description WHERE podcastId = :podcastId AND guid = :guid""",
+        chaptersUrl = :chaptersUrl, description = :description WHERE podcastId = :podcastId AND guid = :guid
+        AND (title IS NOT :title OR audioUrl IS NOT :audioUrl
+            OR (:artworkUrl IS NOT NULL AND artworkUrl IS NOT :artworkUrl)
+            OR (:publishedAt > 0 AND publishedAt != :publishedAt)
+            OR (lastPlayedAt IS NULL AND :durationMs IS NOT NULL AND durationMs IS NOT :durationMs)
+            OR link IS NOT :link OR seasonNumber IS NOT :seasonNumber OR episodeNumber IS NOT :episodeNumber
+            OR chaptersUrl IS NOT :chaptersUrl OR description IS NOT :description)""",
     )
     abstract suspend fun updateMetadata(
         podcastId: Long,

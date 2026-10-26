@@ -50,7 +50,6 @@ class PodcastRepository(
 
     fun observePodcasts() = podcasts.observeSubscribed()
     fun observePodcast(id: Long) = podcasts.observe(id)
-    fun observeSubscribedFeedUrls() = podcasts.observeSubscribedFeedUrls()
     fun observeQueue() = episodes.observeQueue()
     fun observeEpisodes(podcastId: Long) = episodes.observeForPodcast(podcastId)
     fun observeHistory() = episodes.observeHistory()
@@ -58,6 +57,9 @@ class PodcastRepository(
 
     suspend fun getQueue() = episodes.getQueue()
     suspend fun getEpisode(id: Long) = episodes.getWithPodcast(id)
+
+    /** The id of the podcast with this feed, if it's in the database already. */
+    suspend fun findPodcastId(feedUrl: String) = podcasts.getByFeedUrl(feedUrl)?.id
 
     /**
      * Loads a feed so its page can be shown, and its episodes queued, without subscribing.

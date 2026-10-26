@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import ca.danielpower.podcast.PodcastApp
@@ -22,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
@@ -41,23 +43,13 @@ private fun <T> kotlinx.coroutines.flow.Flow<T>.stateIn(vm: ViewModel, initial: 
     stateIn(vm.viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)
 
 val AppViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
-    fun repo(app: Any?) = (app as PodcastApp).repository
-    initializer { QueueViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
-    initializer { PodcastsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
-    initializer { HistoryViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
-    initializer { StatisticsViewModel(repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])) }
-    initializer {
-        EpisodeViewModel(
-            repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]),
-            createSavedStateHandle(),
-        )
-    }
-    initializer {
-        PodcastDetailViewModel(
-            repo(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]),
-            createSavedStateHandle(),
-        )
-    }
+    fun CreationExtras.repository() = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as PodcastApp).repository
+    initializer { QueueViewModel(repository()) }
+    initializer { PodcastsViewModel(repository()) }
+    initializer { HistoryViewModel(repository()) }
+    initializer { StatisticsViewModel(repository()) }
+    initializer { EpisodeViewModel(repository(), createSavedStateHandle()) }
+    initializer { PodcastDetailViewModel(repository(), createSavedStateHandle()) }
 }
 
 class QueueViewModel(private val repository: PodcastRepository) : ViewModel() {
@@ -72,7 +64,6 @@ class QueueViewModel(private val repository: PodcastRepository) : ViewModel() {
     fun dismiss(episodeId: Long) = viewModelScope.launch { repository.dismiss(episodeId) }
     fun undoDismiss(dismissed: Dismissed) =
         viewModelScope.launch { repository.restoreToQueue(dismissed.episodeId, dismissed.queuePosition) }
-    fun moveToFront(episodeId: Long) = viewModelScope.launch { repository.moveToFront(episodeId) }
     fun retryDownload(episodeId: Long) = viewModelScope.launch { repository.retryDownload(episodeId) }
 }
 
@@ -97,7 +88,10 @@ data class StatsUi(
 class StatisticsViewModel(private val repository: PodcastRepository) : ViewModel() {
     private val choice = MutableStateFlow(StatsRange.MONTH to 0)
 
+    // The paths re-emit on every write to the episodes table (a saved position every few seconds
+    // while playing), so the files are only measured again when the list itself changes.
     private val onPhoneBytes = repository.observeDownloadedFiles()
+        .distinctUntilChanged()
         .map { paths -> withContext(Dispatchers.IO) { paths.sumOf { File(it).length() } } }
 
     val ui: StateFlow<StatsUi?> = choice
@@ -248,6 +242,8 @@ class PodcastDetailViewModel(
         _error.value = null
         viewModelScope.launch {
             try {
+                // A podcast opened before shows what's stored while its feed is fetched again.
+                repository.findPodcastId(url)?.let { podcastId.value = it }
                 podcastId.value = repository.open(url)
             } catch (e: Exception) {
                 _error.value = "Couldn't load this podcast: ${e.message}"
