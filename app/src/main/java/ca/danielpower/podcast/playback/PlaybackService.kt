@@ -5,7 +5,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.annotation.OptIn
+import androidx.car.app.connection.CarConnection
 import androidx.core.net.toUri
+import androidx.lifecycle.Observer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -52,7 +54,8 @@ import java.io.File
  *
  * Next and previous (earbuds, steering wheel buttons, the notification, Android Auto) skip forward
  * and back within the episode. Leaving an episode before it ends is a deliberate act: in the app it
- * is swiped off the queue, and the notification and Android Auto have a "Skip episode" button.
+ * is swiped off the queue, and Android Auto has a "Skip episode" button. The phone's notification
+ * doesn't, because Samsung puts it to the left of the other controls.
  */
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
@@ -76,6 +79,18 @@ class PlaybackService : MediaLibraryService() {
     private var listeningEpisodeId: Long? = null
     private var listeningSince = 0L
     private var listeningSkippedUs = 0L
+
+    /**
+     * Android Auto reads its buttons from the same platform session as the phone's notification, so
+     * Skip episode is only offered while connected to a car.
+     */
+    private lateinit var carConnection: CarConnection
+    private var inCar = false
+    private val carConnectionObserver = Observer<Int> { type ->
+        inCar = type != CarConnection.CONNECTION_TYPE_NOT_CONNECTED
+        val session = this.session ?: return@Observer
+        session.mediaNotificationControllerInfo?.let { session.setCustomLayout(it, customLayout()) }
+    }
 
     private val currentEpisodeId: Long?
         get() = player.currentMediaItem?.mediaId?.toLongOrNull()
@@ -117,16 +132,12 @@ class PlaybackService : MediaLibraryService() {
             Intent(this, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_NOW_PLAYING),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val skipEpisode = CommandButton.Builder()
-            .setDisplayName("Skip episode")
-            .setIconResId(R.drawable.ic_skip_episode)
-            .setSessionCommand(SKIP_EPISODE)
-            .build()
         val session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(openApp)
-            .setCustomLayout(ImmutableList.of(skipEpisode))
             .build()
         this.session = session
+        carConnection = CarConnection(this)
+        carConnection.type.observeForever(carConnectionObserver)
 
         scope.launch {
             repository.observeQueue()
@@ -162,6 +173,7 @@ class PlaybackService : MediaLibraryService() {
         saveCurrentPosition()
         recordListening(keepGoing = false)
         scope.cancel()
+        carConnection.type.removeObserver(carConnectionObserver)
         session?.release()
         session = null
         exoPlayer.release()
@@ -212,6 +224,9 @@ class PlaybackService : MediaLibraryService() {
         val id = currentEpisodeId ?: return
         scope.launch { repository.markFinished(id) }
     }
+
+    private fun customLayout(): ImmutableList<CommandButton> =
+        if (inCar) ImmutableList.of(SKIP_EPISODE_BUTTON) else ImmutableList.of()
 
     /** Skip episode: takes the current episode out of the queue, so the next one plays. */
     private fun skipCurrent() {
@@ -295,6 +310,7 @@ class PlaybackService : MediaLibraryService() {
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
+                .setCustomLayout(customLayout())
                 .build()
         }
 
@@ -451,6 +467,11 @@ class PlaybackService : MediaLibraryService() {
         private const val ROOT_ID = "root"
         private const val QUEUE_ID = "queue"
         private val SKIP_EPISODE = SessionCommand("ca.danielpower.podcast.SKIP_EPISODE", Bundle.EMPTY)
+        private val SKIP_EPISODE_BUTTON = CommandButton.Builder()
+            .setDisplayName("Skip episode")
+            .setIconResId(R.drawable.ic_skip_episode)
+            .setSessionCommand(SKIP_EPISODE)
+            .build()
         private val SKIP_COMMANDS = intArrayOf(
             Player.COMMAND_SEEK_TO_NEXT,
             Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
