@@ -7,11 +7,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,11 +35,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -219,7 +224,7 @@ private fun FeedBlocks(blocks: List<StyledBlock>, modifier: Modifier = Modifier)
                         color = color,
                     )
                     is FeedBlock.ListItem -> Row(Modifier.padding(start = ListIndent * block.depth)) {
-                        Text(block.marker.orEmpty(), style = body, color = soft, modifier = Modifier.width(ListIndent))
+                        ListMarker(block.marker, soft, body)
                         Text(text, style = body, color = color)
                     }
                     is FeedBlock.Code -> Text(
@@ -236,6 +241,26 @@ private fun FeedBlocks(blocks: List<StyledBlock>, modifier: Modifier = Modifier)
                 }
             }
         }
+    }
+}
+
+/**
+ * A list item's bullet or number, in a column [ListIndent] wide. Bullets are drawn rather than
+ * typed: the app font's • is a speck.
+ */
+@Composable
+private fun ListMarker(marker: String?, color: Color, style: TextStyle) {
+    when (marker) {
+        null -> Spacer(Modifier.width(ListIndent))
+        "•", "◦" -> Box(Modifier.width(ListIndent).height(with(LocalDensity.current) { style.lineHeight.toDp() })) {
+            val dot = Modifier.align(Alignment.CenterStart).padding(start = 4.dp).size(6.dp)
+            if (marker == "•") {
+                Box(dot.background(color, CircleShape))
+            } else {
+                Box(dot.border(1.5.dp, color, CircleShape))
+            }
+        }
+        else -> Text(marker, style = style, color = color, modifier = Modifier.width(ListIndent))
     }
 }
 
