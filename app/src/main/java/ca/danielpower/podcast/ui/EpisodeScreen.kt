@@ -340,7 +340,6 @@ private fun Notes(description: String?, onSeek: (Long) -> Unit) {
         EmptyMessage("This episode has no show notes.")
         return
     }
-    val text = rememberFeedText(description, timestamps = true) ?: return
     // Timestamps in the notes are links that seek; other links open as usual.
     val outer = LocalUriHandler.current
     val currentOnSeek by rememberUpdatedState(onSeek)
@@ -352,11 +351,10 @@ private fun Notes(description: String?, onSeek: (Long) -> Unit) {
         }
     }
     CompositionLocalProvider(LocalUriHandler provides uriHandler) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            lineHeight = 22.sp,
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = SideMargin, vertical = 4.dp),
+        FeedText(
+            description,
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = SideMargin, vertical = 4.dp),
+            timestamps = true,
         )
     }
 }
