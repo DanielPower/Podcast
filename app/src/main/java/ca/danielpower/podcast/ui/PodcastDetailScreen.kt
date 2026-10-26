@@ -171,14 +171,11 @@ private fun Header(
             }
         }
     }
-    description?.takeIf { it.isNotBlank() }?.let { rememberFeedText(it) }?.let {
-        Text(
-            it,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 4,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().padding(start = SideMargin, end = SideMargin, top = 12.dp),
+    if (!description.isNullOrBlank()) {
+        FeedText(
+            description,
+            Modifier.fillMaxWidth().padding(start = SideMargin, end = SideMargin, top = 12.dp),
+            collapsedHeight = 110.dp,
         )
     }
     if (funding.isNotEmpty()) {
