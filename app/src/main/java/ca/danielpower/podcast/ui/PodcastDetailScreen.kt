@@ -81,7 +81,8 @@ fun PodcastDetailScreen(
                     Header(
                         title = title,
                         author = podcast?.author ?: preview?.author,
-                        artworkUrl = podcast?.artworkUrl ?: preview?.artworkUrl,
+                        // The directory's copy of the artwork is the last resort.
+                        artworkUrl = joinArtwork(podcast?.artworkUrl, preview?.artworkUrl),
                         description = podcast?.description,
                         funding = podcast?.funding.orEmpty(),
                         subscribed = podcast?.subscribed,
