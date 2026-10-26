@@ -52,9 +52,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ca.danielpower.podcast.data.CatchUpProgress
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.data.DownloadProgress
 import ca.danielpower.podcast.data.DownloadState
@@ -69,6 +71,8 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 @Composable
 fun QueueScreen(
     queue: List<EpisodeWithPodcast>?,
+    /** How far each podcast catching up has got, by the episode it's up to. */
+    catchUps: Map<Long, CatchUpProgress>,
     downloadProgress: Map<Long, DownloadProgress.Bytes>,
     playerState: PlayerUiState,
     playingChapters: List<Chapter>,
@@ -121,7 +125,7 @@ fun QueueScreen(
                     "Your queue is empty.\nNew episodes from your podcasts are added here once they've downloaded.",
                 )
                 else -> QueueList(
-                    queue, downloadProgress, playerState, playingChapters, waitingForWifi,
+                    queue, catchUps, downloadProgress, playerState, playingChapters, waitingForWifi,
                     onOpen, onReorder, onSwitchTo, dismiss, onRetryDownload,
                 )
             }
@@ -145,6 +149,7 @@ private fun queueSummary(queue: List<EpisodeWithPodcast>): String {
 @Composable
 private fun QueueList(
     queue: List<EpisodeWithPodcast>,
+    catchUps: Map<Long, CatchUpProgress>,
     downloadProgress: Map<Long, DownloadProgress.Bytes>,
     playerState: PlayerUiState,
     playingChapters: List<Chapter>,
@@ -218,6 +223,7 @@ private fun QueueList(
                         Surface(shadowElevation = if (isDragging) 8.dp else 0.dp) {
                             QueueRow(
                                 item = item,
+                                catchUp = catchUps[item.episode.id],
                                 progress = downloadProgress[item.episode.id],
                                 waitingForWifi = waitingForWifi,
                                 playing = item.episode.id == shownPlayingId,
@@ -320,6 +326,7 @@ private const val RowChangeMs = 250
 @Composable
 private fun QueueRow(
     item: EpisodeWithPodcast,
+    catchUp: CatchUpProgress?,
     progress: DownloadProgress.Bytes?,
     waitingForWifi: Boolean,
     playing: Boolean,
@@ -394,11 +401,26 @@ private fun QueueRow(
                                     Modifier.width(120.dp).padding(top = 4.dp, bottom = 2.dp),
                                 )
                             }
-                            Text(
-                                if (failed) downloadStatus(episode, null) else episodeSubtitle(item),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            if (!failed && catchUp != null) {
+                                // More of this podcast follows once it's done, so the row says so.
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(CatchUpIcon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                                    Text(
+                                        "Catching up · ${catchUp.number} of ${catchUp.total} · ${episodeSubtitle(item)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    if (failed) downloadStatus(episode, null) else episodeSubtitle(item),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }

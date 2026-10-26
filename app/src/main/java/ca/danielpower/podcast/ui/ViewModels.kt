@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import ca.danielpower.podcast.PodcastApp
+import ca.danielpower.podcast.data.CatchUpProgress
 import ca.danielpower.podcast.data.Chapter
 import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.EpisodeWithPodcast
@@ -61,6 +62,11 @@ val AppViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
 
 class QueueViewModel(private val repository: PodcastRepository) : ViewModel() {
     val queue: StateFlow<List<EpisodeWithPodcast>?> = repository.observeQueue().stateIn(this, null)
+
+    /** How far each podcast catching up has got, by the episode it's up to. */
+    val catchUps: StateFlow<Map<Long, CatchUpProgress>> = repository.observeCatchUps()
+        .map { list -> list.associateBy { it.episodeId } }
+        .stateIn(this, emptyMap())
 
     fun reorder(orderedIds: List<Long>) = viewModelScope.launch { repository.reorderQueue(orderedIds) }
     fun dismiss(episodeId: Long) = viewModelScope.launch { repository.dismiss(episodeId) }
@@ -177,11 +183,11 @@ class PodcastsViewModel(private val repository: PodcastRepository) : ViewModel()
         }
     }
 
-    fun subscribe(result: DirectoryResult) {
+    fun subscribe(result: DirectoryResult, catchUp: Boolean) {
         _search.update { it.copy(subscribing = it.subscribing + result.feedUrl, error = null) }
         viewModelScope.launch {
             try {
-                repository.subscribe(result.feedUrl)
+                repository.subscribe(result.feedUrl, catchUp)
             } catch (e: Exception) {
                 _search.update { it.copy(error = "Couldn't subscribe to ${result.title.ifEmpty { "this feed" }}: ${e.message}") }
             } finally {
@@ -224,6 +230,11 @@ class PodcastDetailViewModel(
         .flatMapLatest { id -> id?.let(repository::observeEpisodes) ?: flowOf(emptyList()) }
         .stateIn(this, emptyList())
 
+    /** How far the podcast is through catching up, or null when it isn't. */
+    val catchUp: StateFlow<CatchUpProgress?> = combine(podcastId, repository.observeCatchUps()) { id, list ->
+        list.firstOrNull { it.podcastId == id }
+    }.stateIn(this, null)
+
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
@@ -245,7 +256,9 @@ class PodcastDetailViewModel(
     }
 
     fun addToQueue(episodeId: Long) = viewModelScope.launch { repository.addToQueue(episodeId) }
-    fun subscribe() = viewModelScope.launch { podcastId.value?.let { repository.subscribe(it) } }
+    fun subscribe(catchUp: Boolean) = viewModelScope.launch { podcastId.value?.let { repository.subscribe(it, catchUp) } }
+    fun startCatchingUp() = viewModelScope.launch { podcastId.value?.let { repository.startCatchingUp(it) } }
+    fun stopCatchingUp() = viewModelScope.launch { podcastId.value?.let { repository.stopCatchingUp(it) } }
     fun unsubscribe() = viewModelScope.launch { podcastId.value?.let { repository.unsubscribe(it) } }
 }
 

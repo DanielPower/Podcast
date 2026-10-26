@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import org.json.JSONArray
 import org.json.JSONObject
 
-@Database(entities = [Podcast::class, Episode::class, Chapter::class, DailyStats::class], version = 7)
+@Database(entities = [Podcast::class, Episode::class, Chapter::class, DailyStats::class], version = 8)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
@@ -23,7 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, "podcast.db")
                 // Version 1 shipped only in pre-release test builds, with more than one schema.
                 .fallbackToDestructiveMigrationFrom(1)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build()
     }
 }
@@ -76,6 +76,13 @@ private val MIGRATION_5_6 = object : Migration(5, 6) {
 private val MIGRATION_6_7 = object : Migration(6, 7) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE podcasts ADD COLUMN funding TEXT NOT NULL DEFAULT '[]'")
+    }
+}
+
+/** Adds catching up on a podcast's back catalogue. */
+private val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE podcasts ADD COLUMN catchUpEpisodeId INTEGER")
     }
 }
 

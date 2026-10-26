@@ -239,10 +239,12 @@ private fun App(
                 TabPage(chromeHeight) {
                     val vm: QueueViewModel = viewModel(factory = AppViewModelFactory)
                     val queue by vm.queue.collectAsStateWithLifecycle()
+                    val catchUps by vm.catchUps.collectAsStateWithLifecycle()
                     val downloadProgress by DownloadProgress.all.collectAsStateWithLifecycle()
                     val unmetered = rememberOnUnmeteredNetwork()
                     QueueScreen(
                         queue = queue,
+                        catchUps = catchUps,
                         downloadProgress = downloadProgress,
                         playerState = playerState,
                         playingChapters = playingChapters,
@@ -435,14 +437,18 @@ private fun PodcastPage(openEpisode: (Long) -> Unit, connection: PlayerConnectio
     val podcast by vm.podcast.collectAsStateWithLifecycle()
     val episodes by vm.episodes.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val catchUp by vm.catchUp.collectAsStateWithLifecycle()
     PodcastDetailScreen(
         podcast = podcast,
         preview = vm.preview,
         episodes = episodes,
+        catchUp = catchUp,
         error = error,
         onRetry = vm::load,
-        onSubscribe = vm::subscribe,
+        onSubscribe = { catchUp -> vm.subscribe(catchUp) },
         onUnsubscribe = vm::unsubscribe,
+        onStartCatchUp = vm::startCatchingUp,
+        onStopCatchUp = vm::stopCatchingUp,
         onAddToQueue = vm::addToQueue,
         // As on the episode page: queued if it wasn't, and the player moves it to the front.
         onPlay = { id ->

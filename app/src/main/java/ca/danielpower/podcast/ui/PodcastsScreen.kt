@@ -75,7 +75,7 @@ fun PodcastsScreen(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClearSearch: () -> Unit,
-    onSubscribe: (DirectoryResult) -> Unit,
+    onSubscribe: (DirectoryResult, catchUp: Boolean) -> Unit,
     onOpenResult: (DirectoryResult) -> Unit,
     onOpen: (Long) -> Unit,
     refreshing: Boolean,
@@ -252,7 +252,7 @@ private fun SearchResults(
     podcasts: List<Podcast>,
     onOpen: (Long) -> Unit,
     onOpenResult: (DirectoryResult) -> Unit,
-    onSubscribe: (DirectoryResult) -> Unit,
+    onSubscribe: (DirectoryResult, catchUp: Boolean) -> Unit,
 ) {
     val term = search.query.trim()
     val feedUrl = remember(term) { feedUrlOrNull(term) }
@@ -266,6 +266,17 @@ private fun SearchResults(
     val alreadySubscribed = remember(search.results) { subscribedUrls }
     val directory = remember(search.results, alreadySubscribed) { search.results.filter { it.feedUrl !in alreadySubscribed } }
     val showDirectory = feedUrl == null && (search.loading || search.searchedFor != null || search.error != null)
+    // Subscribing asks where to start first.
+    var choosingStart by remember { mutableStateOf<DirectoryResult?>(null) }
+    choosingStart?.let { result ->
+        SubscribeDialog(
+            onSubscribe = { catchUp ->
+                choosingStart = null
+                onSubscribe(result, catchUp)
+            },
+            onDismiss = { choosingStart = null },
+        )
+    }
     val list = rememberLazyListState()
     DropFocusOnScroll(list.isScrollInProgress)
     LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -279,7 +290,7 @@ private fun SearchResults(
                     subtitle = feedUrl,
                     subscribed = feedUrl in subscribedUrls,
                     subscribing = feedUrl in search.subscribing,
-                    onSubscribe = { onSubscribe(result) },
+                    onSubscribe = { choosingStart = result },
                     onClick = { onOpenResult(result) },
                 )
             }
@@ -327,7 +338,7 @@ private fun SearchResults(
                     subtitle = result.author,
                     subscribed = result.feedUrl in subscribedUrls,
                     subscribing = result.feedUrl in search.subscribing,
-                    onSubscribe = { onSubscribe(result) },
+                    onSubscribe = { choosingStart = result },
                     onClick = { onOpenResult(result) },
                 )
             }

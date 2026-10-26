@@ -43,9 +43,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ca.danielpower.podcast.data.CatchUpProgress
 import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
@@ -62,17 +67,28 @@ fun PodcastDetailScreen(
     podcast: Podcast?,
     preview: DirectoryResult?,
     episodes: List<EpisodeWithPodcast>,
+    catchUp: CatchUpProgress?,
     error: String?,
     onRetry: () -> Unit,
-    onSubscribe: () -> Unit,
+    onSubscribe: (catchUp: Boolean) -> Unit,
     onUnsubscribe: () -> Unit,
+    onStartCatchUp: () -> Unit,
+    onStopCatchUp: () -> Unit,
     onAddToQueue: (Long) -> Unit,
     onPlay: (Long) -> Unit,
     onOpenEpisode: (Long) -> Unit,
     onBack: () -> Unit,
 ) {
     var confirmUnsubscribe by remember { mutableStateOf(false) }
+    var choosingStart by remember { mutableStateOf(false) }
     val title = podcast?.title ?: preview?.title.orEmpty()
+    // Catching up goes oldest first, so the episodes read in the order they'll be played.
+    val shown = remember(episodes, catchUp != null) { if (catchUp != null) episodes.asReversed() else episodes }
+    val upNextId = remember(shown, catchUp) {
+        catchUp?.let { progress ->
+            shown.dropWhile { it.episode.id != progress.episodeId }.drop(1).firstOrNull { !it.episode.played }?.episode?.id
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         PageHeader(onBack) { PageTitle(title) }
@@ -87,15 +103,23 @@ fun PodcastDetailScreen(
                         description = podcast?.description,
                         funding = podcast?.funding.orEmpty(),
                         subscribed = podcast?.subscribed,
-                        onSubscribe = onSubscribe,
+                        catchUp = catchUp,
+                        onSubscribe = { choosingStart = true },
                         onUnsubscribe = { confirmUnsubscribe = true },
+                        onStartCatchUp = onStartCatchUp,
+                        onStopCatchUp = onStopCatchUp,
                     )
                 }
             }
             when {
-                podcast != null -> items(episodes, key = { it.episode.id }) { item ->
+                podcast != null -> items(shown, key = { it.episode.id }) { item ->
                     EpisodeRow(
                         item,
+                        catchUpMark = when (item.episode.id) {
+                            catchUp?.episodeId -> CatchUpMark.IN_QUEUE
+                            upNextId -> CatchUpMark.UP_NEXT
+                            else -> null
+                        },
                         onClick = { onOpenEpisode(item.episode.id) },
                         onAddToQueue = { onAddToQueue(item.episode.id) },
                         onPlay = { onPlay(item.episode.id) },
@@ -115,6 +139,16 @@ fun PodcastDetailScreen(
                 }
             }
         }
+    }
+
+    if (choosingStart) {
+        SubscribeDialog(
+            onSubscribe = { catchUp ->
+                choosingStart = false
+                onSubscribe(catchUp)
+            },
+            onDismiss = { choosingStart = false },
+        )
     }
 
     if (confirmUnsubscribe) {
@@ -145,8 +179,11 @@ private fun Header(
     description: String?,
     funding: List<FundingLink>,
     subscribed: Boolean?,
+    catchUp: CatchUpProgress?,
     onSubscribe: () -> Unit,
     onUnsubscribe: () -> Unit,
+    onStartCatchUp: () -> Unit,
+    onStopCatchUp: () -> Unit,
 ) {
     // The title, author and button fill the artwork's height, with the button level with its bottom.
     Row(Modifier.padding(start = SideMargin, end = SideMargin, top = 8.dp)) {
@@ -165,7 +202,7 @@ private fun Header(
                     )
                 }
             }
-            // Subscribing is easily undone, so it takes one tap; unsubscribing asks first.
+            // Subscribing asks where to start; unsubscribing asks first, as it deletes downloads.
             if (subscribed == true) {
                 SecondaryButton(onClick = onUnsubscribe) { Text("Unsubscribe") }
             } else {
@@ -190,8 +227,17 @@ private fun Header(
             for (link in funding) FundingChip(link.label, onClick = { uriHandler.openUri(link.url) })
         }
     }
+    val catchUpModifier = Modifier.padding(start = SideMargin, end = SideMargin, top = 12.dp)
+    when {
+        catchUp != null -> CatchUpBanner(catchUp, onStop = onStopCatchUp, modifier = catchUpModifier)
+        subscribed == true -> StartCatchUpButton(onClick = onStartCatchUp, modifier = catchUpModifier)
+    }
     Spacer(Modifier.height(16.dp))
-    SectionLabel("Episodes", Modifier.padding(horizontal = SideMargin, vertical = 6.dp))
+    SectionLabel(
+        "Episodes",
+        Modifier.padding(horizontal = SideMargin, vertical = 6.dp),
+        trailing = "Oldest first".takeIf { catchUp != null },
+    )
 }
 
 /** A `<podcast:funding>` link, opened in the browser. */
@@ -228,7 +274,13 @@ private fun FundingChip(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQueue: () -> Unit, onPlay: () -> Unit) {
+private fun EpisodeRow(
+    item: EpisodeWithPodcast,
+    catchUpMark: CatchUpMark?,
+    onClick: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onPlay: () -> Unit,
+) {
     val episode = item.episode
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -242,12 +294,23 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
                 overflow = TextOverflow.Ellipsis,
                 color = if (episode.played) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             )
+            val details = listOfNotNull(
+                formatDate(episode.publishedAt).takeIf { it.isNotEmpty() },
+                episode.durationMs?.let(::formatDuration),
+                "Played".takeIf { episode.played },
+            ).joinToString(" · ")
+            val accent = MaterialTheme.colorScheme.primary
             Text(
-                listOfNotNull(
-                    formatDate(episode.publishedAt).takeIf { it.isNotEmpty() },
-                    episode.durationMs?.let(::formatDuration),
-                    "Played".takeIf { episode.played },
-                ).joinToString(" · "),
+                when (catchUpMark) {
+                    null -> AnnotatedString(details)
+                    // The episode catching up is on stands out; the one after it is only named.
+                    CatchUpMark.IN_QUEUE -> buildAnnotatedString {
+                        append(details)
+                        append(" · ")
+                        withStyle(SpanStyle(color = accent, fontWeight = FontWeight.Bold)) { append("In queue") }
+                    }
+                    CatchUpMark.UP_NEXT -> AnnotatedString("$details · Up next")
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -275,5 +338,8 @@ private fun EpisodeRow(item: EpisodeWithPodcast, onClick: () -> Unit, onAddToQue
         }
     }
 }
+
+/** Where an episode stands while its podcast catches up. */
+private enum class CatchUpMark { IN_QUEUE, UP_NEXT }
 
 private val HeaderArtSize = 120.dp
