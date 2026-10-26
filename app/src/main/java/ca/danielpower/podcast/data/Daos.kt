@@ -64,6 +64,22 @@ interface PodcastDao {
     @Query("UPDATE podcasts SET openedAt = :now WHERE id = :id")
     suspend fun markOpened(id: Long, now: Long)
 
+    @Query("UPDATE podcasts SET catchUpEpisodeId = :episodeId WHERE id = :id")
+    suspend fun setCatchUp(id: Long, episodeId: Long?)
+
+    @Query("SELECT * FROM podcasts WHERE catchUpEpisodeId = :episodeId")
+    suspend fun getCatchingUpOn(episodeId: Long): Podcast?
+
+    /** Every podcast catching up, with how far it has got. Episodes are counted oldest first. */
+    @Query(
+        """SELECT p.id AS podcastId, c.id AS episodeId,
+        (SELECT COUNT(*) FROM episodes e WHERE e.podcastId = p.id
+            AND (e.publishedAt < c.publishedAt OR (e.publishedAt = c.publishedAt AND e.id <= c.id))) AS number,
+        (SELECT COUNT(*) FROM episodes e WHERE e.podcastId = p.id) AS total
+        FROM podcasts p JOIN episodes c ON c.id = p.catchUpEpisodeId""",
+    )
+    fun observeCatchUps(): Flow<List<CatchUpProgress>>
+
     @Query("DELETE FROM podcasts WHERE id = :id")
     suspend fun delete(id: Long)
 }
@@ -96,6 +112,14 @@ abstract class EpisodeDao {
 
     @Query("SELECT * FROM episodes WHERE podcastId = :podcastId")
     abstract suspend fun getForPodcast(podcastId: Long): List<Episode>
+
+    /** The oldest unplayed episode after the given one (by date, then id), for catching up. */
+    @Query(
+        """SELECT * FROM episodes WHERE podcastId = :podcastId AND played = 0
+        AND (publishedAt > :publishedAt OR (publishedAt = :publishedAt AND id > :id))
+        ORDER BY publishedAt, id LIMIT 1""",
+    )
+    abstract suspend fun nextUnplayedAfter(podcastId: Long, publishedAt: Long, id: Long): Episode?
 
     @Query("SELECT guid FROM episodes WHERE podcastId = :podcastId")
     abstract suspend fun getGuids(podcastId: Long): List<String>

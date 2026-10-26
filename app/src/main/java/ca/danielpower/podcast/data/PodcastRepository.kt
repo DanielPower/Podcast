@@ -54,6 +54,7 @@ class PodcastRepository(
     fun observeQueue() = episodes.observeQueue()
     fun observeEpisodes(podcastId: Long) = episodes.observeForPodcast(podcastId)
     fun observeHistory() = episodes.observeHistory()
+    fun observeCatchUps() = podcasts.observeCatchUps()
 
     suspend fun getQueue() = episodes.getQueue()
     suspend fun getEpisode(id: Long) = episodes.getWithPodcast(id)
@@ -77,18 +78,20 @@ class PodcastRepository(
     }
 
     /** Subscribes to a feed from search, without opening its page first. */
-    suspend fun subscribe(feedUrl: String) {
-        subscribe(podcasts.getByFeedUrl(feedUrl)?.id ?: addFeed(feedUrl))
+    suspend fun subscribe(feedUrl: String, catchUp: Boolean) {
+        subscribe(podcasts.getByFeedUrl(feedUrl)?.id ?: addFeed(feedUrl), catchUp)
     }
 
     /**
      * Subscribes to a podcast whose feed is already loaded. Its back catalogue isn't downloaded,
-     * except for the newest episode so there is something to listen to right away.
+     * except for the newest episode so there is something to listen to right away, or, to [catchUp],
+     * the oldest.
      */
-    suspend fun subscribe(podcastId: Long) {
+    suspend fun subscribe(podcastId: Long, catchUp: Boolean) {
         val podcast = podcasts.get(podcastId) ?: return
         if (podcast.subscribed) return
         podcasts.setSubscribed(podcastId, true, System.currentTimeMillis())
+        if (catchUp) return startCatchingUp(podcastId)
         val newest = episodes.getForPodcast(podcastId).maxByOrNull { it.publishedAt } ?: return
         if (!newest.played && newest.queuePosition == null && newest.downloadState != DownloadState.DOWNLOADED) {
             startDownload(newest.id)
@@ -111,6 +114,38 @@ class PodcastRepository(
             }
         }
         podcasts.setSubscribed(podcastId, false, now)
+        podcasts.setCatchUp(podcastId, null)
+    }
+
+    /**
+     * Starts working through the podcast's back catalogue: its oldest unplayed episode is queued, and
+     * each time that one finishes or is dismissed the next is queued at the end. New episodes wait
+     * their turn instead of being queued as they come out.
+     */
+    suspend fun startCatchingUp(podcastId: Long) {
+        val first = episodes.nextUnplayedAfter(podcastId, Long.MIN_VALUE, Long.MIN_VALUE)
+        podcasts.setCatchUp(podcastId, first?.id)
+        first?.let { addToQueue(it.id) }
+    }
+
+    /** Stops catching up. The episode it was up to stays queued, and new episodes are queued again. */
+    suspend fun stopCatchingUp(podcastId: Long) = podcasts.setCatchUp(podcastId, null)
+
+    /** What a step of catching up did, so undoing the dismissal that caused it can take it back. */
+    private data class CatchUpStep(val podcastId: Long, val from: Long, val next: Long?, val nextWasQueued: Boolean)
+
+    private var lastCatchUpStep: CatchUpStep? = null
+
+    /**
+     * Called when an episode leaves the queue by finishing or being dismissed. If a podcast was
+     * catching up on it, the next unplayed episode is queued; after the newest, catching up ends.
+     */
+    private suspend fun catchUpAfter(episode: Episode): CatchUpStep? {
+        val podcast = podcasts.getCatchingUpOn(episode.id) ?: return null
+        val next = episodes.nextUnplayedAfter(podcast.id, episode.publishedAt, episode.id)
+        podcasts.setCatchUp(podcast.id, next?.id)
+        next?.let { addToQueue(it.id) }
+        return CatchUpStep(podcast.id, episode.id, next?.id, next?.queuePosition != null)
     }
 
     private val _opmlImport = MutableStateFlow<OpmlImport?>(null)
@@ -210,7 +245,10 @@ class PodcastRepository(
         val ids = episodes.insertAll(fresh.map { it.toEntity(podcast.id) })
         saveInlineChapters(podcast.id, feed.episodes)
         val added = ids.filter { it > 0 }
-        if (podcast.subscribed && settings.current.autoDownload) added.forEach { startDownload(it) }
+        // A podcast catching up gets to new episodes in turn.
+        if (podcast.subscribed && podcast.catchUpEpisodeId == null && settings.current.autoDownload) {
+            added.forEach { startDownload(it) }
+        }
         return added.size
     }
 
@@ -274,31 +312,48 @@ class PodcastRepository(
 
     /**
      * Removes an episode from the queue without marking it played. A finished download is kept
-     * for a while; one still in progress is cancelled.
+     * for a while; one still in progress is cancelled. If its podcast is catching up, the next
+     * episode is queued, as dismissing counts as skipping.
      */
     suspend fun dismiss(episodeId: Long) {
+        val episode = removeFromQueue(episodeId) ?: return
+        lastCatchUpStep = catchUpAfter(episode)
+    }
+
+    private suspend fun removeFromQueue(episodeId: Long): Episode? {
         episodes.removeFromQueue(episodeId, System.currentTimeMillis())
-        val episode = episodes.get(episodeId) ?: return
+        val episode = episodes.get(episodeId) ?: return null
         if (episode.downloadState != DownloadState.DOWNLOADED) {
             // State first, so the cancelled download doesn't put itself back to waiting.
             episodes.setDownload(episodeId, DownloadState.NONE, null)
             Downloads.cancel(context, episodeId)
             partialFile(episodeId).delete()
         }
+        return episode
     }
 
-    /** Undoes [dismiss]: puts the episode back where it was, restarting its download if that was cancelled. */
+    /**
+     * Undoes [dismiss]: puts the episode back where it was, restarting its download if that was
+     * cancelled. A podcast catching up goes back to it, taking back the next episode it queued.
+     */
     suspend fun restoreToQueue(episodeId: Long, queuePosition: Long) {
+        lastCatchUpStep?.takeIf { it.from == episodeId }?.let { step ->
+            lastCatchUpStep = null
+            if (step.next != null && !step.nextWasQueued) removeFromQueue(step.next)
+            podcasts.setCatchUp(step.podcastId, episodeId)
+        }
         episodes.setQueuePosition(episodeId, queuePosition)
         val episode = episodes.get(episodeId) ?: return
         if (episode.downloadState != DownloadState.DOWNLOADED) startDownload(episodeId)
     }
 
-    /** Called when an episode plays to the end. */
+    /** Called when an episode plays to the end. A podcast catching up on it queues its next episode. */
     suspend fun markFinished(episodeId: Long) {
         episodes.markPlayed(episodeId)
-        episodes.get(episodeId)?.let { stats.add(today(), it.podcastId, finished = 1) }
+        val episode = episodes.get(episodeId) ?: return
+        stats.add(today(), episode.podcastId, finished = 1)
         episodes.removeFromQueue(episodeId, System.currentTimeMillis())
+        catchUpAfter(episode)
     }
 
     /** Deletes the files of episodes that have been out of the queue for longer than the "keep" setting. */

@@ -272,8 +272,14 @@ fun ArtworkImage(urls: String?, modifier: Modifier = Modifier, alpha: Float = 1f
 
 /** A thin bar, filled to [fraction] (0 to 1). */
 @Composable
-fun ThinBar(fraction: Float, color: Color, modifier: Modifier = Modifier, height: Dp = 3.dp) {
-    Box(modifier.height(height).background(MaterialTheme.podcastColors.track)) {
+fun ThinBar(
+    fraction: Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+    height: Dp = 3.dp,
+    trackColor: Color = MaterialTheme.podcastColors.track,
+) {
+    Box(modifier.height(height).background(trackColor)) {
         Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().background(color))
     }
 }

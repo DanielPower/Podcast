@@ -27,7 +27,15 @@ data class Podcast(
     @ColumnInfo(defaultValue = "0") val openedAt: Long = 0,
     /** Where to support the show, from the feed's `<podcast:funding>` tags. */
     @ColumnInfo(defaultValue = "[]") val funding: List<FundingLink> = emptyList(),
+    /**
+     * While catching up on the back catalogue, the episode it's up to: the one in the queue. Finishing
+     * or dismissing it queues the next oldest unplayed episode. Null when not catching up.
+     */
+    val catchUpEpisodeId: Long? = null,
 )
+
+/** How far a podcast is through catching up: its [episodeId] is episode [number] of [total], oldest first. */
+data class CatchUpProgress(val podcastId: Long, val episodeId: Long, val number: Int, val total: Int)
 
 /** A link to support a podcast (Patreon, Ko-fi and the like), with the label the feed gives it. */
 data class FundingLink(val url: String, val label: String)
