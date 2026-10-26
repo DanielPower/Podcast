@@ -79,14 +79,20 @@ class PlayerUiState {
 @Composable
 fun rememberPlayerUiState(player: Player?): PlayerUiState {
     val state = remember { PlayerUiState() }
+    // An episode the player has switched to but that is still loading, while the old one is shown.
+    var loadingId by remember { mutableStateOf<Long?>(null) }
 
-    fun update(p: Player) {
+    fun update(p: Player, force: Boolean = false) {
         val item = p.currentMediaItem
         val id = item?.mediaId?.toLongOrNull()
         // Right after switching episodes the player has the new item but not yet its position,
         // duration or metadata. Keep showing the old episode until it has them, rather than
-        // flashing a frame of empty progress and times.
-        if (id != null && state.episodeId != null && id != state.episodeId && loading(p)) return
+        // flashing a frame of empty progress and times. A slow stream gets [MaxHoldMs] at most.
+        if (!force && id != null && state.episodeId != null && id != state.episodeId && loading(p)) {
+            loadingId = id
+            return
+        }
+        loadingId = null
         state.episodeId = id
         state.title = item?.mediaMetadata?.title?.toString()
         state.podcastTitle = item?.mediaMetadata?.artist?.toString()
@@ -109,6 +115,13 @@ fun rememberPlayerUiState(player: Player?): PlayerUiState {
         onDispose { player.removeListener(listener) }
     }
 
+    LaunchedEffect(player, loadingId) {
+        if (player != null && loadingId != null) {
+            delay(MaxHoldMs)
+            update(player, force = true)
+        }
+    }
+
     LaunchedEffect(player, state.isPlaying) {
         while (player != null && state.isPlaying) {
             if (player.currentMediaItem?.mediaId?.toLongOrNull() == state.episodeId) {
@@ -120,6 +133,9 @@ fun rememberPlayerUiState(player: Player?): PlayerUiState {
     }
     return state
 }
+
+/** How long the old episode stays shown while a newly switched-to one loads. */
+private const val MaxHoldMs = 500L
 
 /** Whether the player is still loading its current item and doesn't know its duration yet. */
 private fun loading(p: Player): Boolean =

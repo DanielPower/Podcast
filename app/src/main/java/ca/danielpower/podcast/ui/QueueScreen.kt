@@ -61,6 +61,7 @@ import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.Episode
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.playback.PlayerUiState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -173,6 +174,13 @@ private fun QueueList(
     }
     val playingId = playerState.episodeId
     LaunchedEffect(playingId) { if (playingId == takingOverId) takingOverId = null }
+    // If the player never switches (no controller, say), stop showing the dropped episode as playing.
+    LaunchedEffect(takingOverId) {
+        if (takingOverId != null) {
+            delay(2_000)
+            takingOverId = null
+        }
+    }
     // The labels and rows show where the drag will leave things: a playable episode dragged above
     // the playing one is shown as playing before it's dropped and takes over, so nothing reflows on drop.
     val shownPlayingId = takingOverId ?: draggedId?.takeIf { id ->
