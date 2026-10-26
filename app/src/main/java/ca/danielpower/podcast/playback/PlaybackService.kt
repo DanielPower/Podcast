@@ -51,8 +51,8 @@ import java.io.File
  * It is a library service so Android Auto can browse the queue.
  *
  * Next and previous (earbuds, steering wheel buttons, the notification, Android Auto) skip forward
- * and back within the episode. Leaving an episode before it ends is a deliberate act, so it has its
- * own "Skip episode" button instead.
+ * and back within the episode. Leaving an episode before it ends is a deliberate act: in the app it
+ * is swiped off the queue, and the notification and Android Auto have a "Skip episode" button.
  */
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {

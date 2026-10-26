@@ -276,6 +276,4 @@ class EpisodeViewModel(
     /** Makes sure the episode is queued (and downloading) before the player is asked to play it. */
     fun prepareToPlay() = viewModelScope.launch { repository.addToQueue(episodeId) }
     fun playNext() = viewModelScope.launch { repository.playNext(episodeId) }
-    fun addToQueue() = viewModelScope.launch { repository.addToQueue(episodeId) }
-    fun removeFromQueue() = viewModelScope.launch { repository.dismiss(episodeId) }
 }

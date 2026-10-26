@@ -132,7 +132,6 @@ fun EpisodeScreen(
     onBack: () -> Unit,
     onPlay: (startMs: Long?) -> Unit,
     onPlayNext: () -> Unit,
-    onRemoveFromQueue: () -> Unit,
 ) {
     val isCurrent = item != null && player != null && playerState.episodeId == item.episode.id
     var tab by rememberSaveable { mutableIntStateOf(EpisodeTab.Notes.ordinal) }
@@ -146,7 +145,7 @@ fun EpisodeScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-        TopBar(item, isCurrent, onBack, onRemoveFromQueue)
+        TopBar(item, isCurrent, onBack)
         if (item == null) return@Column
         Column(Modifier.weight(1f)) {
             Header(item)
@@ -215,7 +214,6 @@ private fun TopBar(
     item: EpisodeWithPodcast?,
     isCurrent: Boolean,
     onBack: () -> Unit,
-    onRemoveFromQueue: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     Row(
@@ -233,13 +231,6 @@ private fun TopBar(
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f),
         )
-        // Leaving an episode before it ends is deliberate, so it's a labelled button up here rather
-        // than next to the player controls (where next and previous skip within the episode).
-        if (isCurrent) {
-            TextButton(onClick = onRemoveFromQueue) {
-                Text("Skip episode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-            }
-        }
         val link = item?.episode?.link
         if (link != null) {
             IconButton(onClick = { uriHandler.openUri(link) }) {

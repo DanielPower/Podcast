@@ -422,7 +422,6 @@ private fun App(
                             connection?.play(vm.episodeId, startMs)
                         },
                         onPlayNext = vm::playNext,
-                        onRemoveFromQueue = vm::removeFromQueue,
                     )
                 }
             }
