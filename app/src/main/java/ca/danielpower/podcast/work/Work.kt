@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import ca.danielpower.podcast.data.DownloadProgress
 import ca.danielpower.podcast.data.DownloadState
+import ca.danielpower.podcast.podcastUserAgent
 import ca.danielpower.podcast.repository
 import ca.danielpower.podcast.settings
 import kotlinx.coroutines.Dispatchers
@@ -188,6 +189,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
     companion object {
         private const val PROGRESS_INTERVAL_MS = 500L
         private val client = OkHttpClient.Builder()
+            .podcastUserAgent()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(2, TimeUnit.MINUTES)
             .build()
