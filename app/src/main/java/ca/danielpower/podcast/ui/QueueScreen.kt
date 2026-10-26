@@ -166,10 +166,13 @@ private fun QueueList(
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         items.forEachIndexed { index, item ->
+            // The top label keeps one key whatever it says. The list stays anchored to its first
+            // visible key, so a new key appearing above it (as when a dragged episode takes over
+            // playback and "Up next" becomes "Now playing") would scroll the top row out of view.
             when {
-                index == 0 && playingFirst -> item(key = "label-playing") { QueueLabel("Now playing") }
-                index == 0 || (index == 1 && playingFirst) -> item(key = "label-next") {
-                    if (index == 1) HorizontalDivider(Modifier.padding(horizontal = SideMargin), color = MaterialTheme.colorScheme.outlineVariant)
+                index == 0 -> item(key = "label-top") { QueueLabel(if (playingFirst) "Now playing" else "Up next") }
+                index == 1 && playingFirst -> item(key = "label-next") {
+                    HorizontalDivider(Modifier.padding(horizontal = SideMargin), color = MaterialTheme.colorScheme.outlineVariant)
                     QueueLabel("Up next")
                 }
             }
