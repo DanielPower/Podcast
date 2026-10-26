@@ -109,7 +109,7 @@ class PlaybackService : MediaLibraryService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
-        player = QueuePlayer(exoPlayer)
+        player = SkipPlayer(exoPlayer)
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) saveDuration()
@@ -275,7 +275,7 @@ class PlaybackService : MediaLibraryService() {
      * Turns next and previous into skip forward and skip back, and advertises them even though the
      * player only ever holds one item.
      */
-    private inner class QueuePlayer(player: Player) : ForwardingPlayer(player) {
+    private inner class SkipPlayer(player: Player) : ForwardingPlayer(player) {
         override fun getAvailableCommands(): Player.Commands =
             super.getAvailableCommands().buildUpon().addAll(*SKIP_COMMANDS).build()
 

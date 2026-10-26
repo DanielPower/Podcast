@@ -99,8 +99,8 @@ object Downloads {
 }
 
 /**
- * Downloads one episode's audio, then appends the episode to the queue. A download that's stopped
- * part way (no network, or Android's time limit on background work) resumes where it left off.
+ * Downloads one episode's audio. The episode is already in the queue, waiting there as a placeholder
+ * until this finishes. A download that's stopped part way (no network, or Android's time limit on background work) resumes where it left off.
  */
 class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
