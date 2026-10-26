@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.CatchUpProgress
 
 /** Marks catching up wherever it shows: on the podcast page and on the queue row. */
-val CatchUpIcon: ImageVector get() = Icons.AutoMirrored.Filled.FormatListNumbered
+val CatchUpIcon: ImageVector get() = Icons.Default.FormatListNumbered
 
 /** Asked on Subscribe: start with the newest episode, or catch up from the first. */
 @Composable

@@ -125,7 +125,7 @@ fun QueueScreen(
                     "Your queue is empty.\nNew episodes from your podcasts are added here once they've downloaded.",
                 )
                 else -> QueueList(
-                    queue, downloadProgress, playerState, playingChapters, waitingForWifi,
+                    queue, catchUps, downloadProgress, playerState, playingChapters, waitingForWifi,
                     onOpen, onReorder, onSwitchTo, dismiss, onRetryDownload,
                 )
             }
@@ -149,6 +149,7 @@ private fun queueSummary(queue: List<EpisodeWithPodcast>): String {
 @Composable
 private fun QueueList(
     queue: List<EpisodeWithPodcast>,
+    catchUps: Map<Long, CatchUpProgress>,
     downloadProgress: Map<Long, DownloadProgress.Bytes>,
     playerState: PlayerUiState,
     playingChapters: List<Chapter>,
