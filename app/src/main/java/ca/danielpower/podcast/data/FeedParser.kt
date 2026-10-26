@@ -83,7 +83,7 @@ object FeedParser {
             title = title?.trim().orEmpty().ifEmpty { "Untitled podcast" },
             author = author?.trim(),
             // Podcasting 2.0 artwork first, then iTunes; the RSS image is often a small thumbnail.
-            artworkUrl = bestArtwork(podcastImages) ?: itunesImage?.trim()?.takeIf { it.isNotEmpty() } ?: rssImage,
+            artworkUrl = joinArtwork(*artworkImages(podcastImages), itunesImage, rssImage),
             description = description?.trim(),
             episodes = episodes,
             funding = funding,
@@ -138,7 +138,7 @@ object FeedParser {
             audioUrl = url,
             publishedAt = pubDate?.let(::parseDate) ?: 0L,
             durationMs = duration?.let(::parseDuration),
-            artworkUrl = bestArtwork(podcastImages) ?: artwork?.trim()?.takeIf { it.isNotEmpty() },
+            artworkUrl = joinArtwork(*artworkImages(podcastImages), artwork),
             link = link?.trim()?.takeIf { it.isNotEmpty() },
             seasonNumber = season?.trim()?.toIntOrNull(),
             episodeNumber = episodeNumber?.trim()?.toIntOrNull(),
@@ -175,14 +175,15 @@ object FeedParser {
     }
 
     /**
-     * The largest `<podcast:image>` meant as artwork. One with no purpose counts as artwork; ones
-     * only for other uses (a banner, social sharing) are skipped.
+     * The `<podcast:image>`s meant as artwork, largest first. One with no purpose counts as artwork;
+     * ones only for other uses (a banner, social sharing) are skipped.
      */
-    private fun bestArtwork(images: List<PodcastImage>): String? =
+    private fun artworkImages(images: List<PodcastImage>): Array<String> =
         images
             .filter { image -> image.purpose.isNullOrBlank() || image.purpose.split(' ').any { it == "artwork" } }
-            .maxByOrNull { it.width }
-            ?.href
+            .sortedByDescending { it.width }
+            .map { it.href }
+            .toTypedArray()
 
     /** Reads `<psc:chapters>`, leaving the parser at its closing tag. */
     private fun readPodloveChapters(parser: XmlPullParser): List<ParsedChapter> {

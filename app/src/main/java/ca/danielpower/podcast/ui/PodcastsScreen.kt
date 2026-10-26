@@ -64,11 +64,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ca.danielpower.podcast.data.Podcast
-import coil.compose.AsyncImage
 
 @Composable
 fun PodcastsScreen(
@@ -431,12 +429,7 @@ private fun PodcastTile(podcast: Podcast, onClick: () -> Unit) {
                 .clip(PaperShape)
                 .background(MaterialTheme.podcastColors.track),
         ) {
-            AsyncImage(
-                model = podcast.artworkUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            ArtworkImage(podcast.artworkUrl, Modifier.fillMaxSize())
         }
         Text(
             podcast.title,

@@ -28,6 +28,7 @@ import ca.danielpower.podcast.MainActivity
 import ca.danielpower.podcast.R
 import ca.danielpower.podcast.data.AppSettings
 import ca.danielpower.podcast.data.EpisodeWithPodcast
+import ca.danielpower.podcast.data.artworkCandidates
 import ca.danielpower.podcast.repository
 import ca.danielpower.podcast.settings
 import com.google.common.collect.ImmutableList
@@ -454,7 +455,7 @@ class PlaybackService : MediaLibraryService() {
                 MediaMetadata.Builder()
                     .setTitle(episode.title)
                     .setArtist(podcast.title)
-                    .setArtworkUri(artworkUrl?.toUri())
+                    .setArtworkUri(artworkCandidates(artworkUrl).firstOrNull()?.toUri())
                     .setIsBrowsable(false)
                     .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)

@@ -5,10 +5,13 @@ import ca.danielpower.podcast.data.AppDatabase
 import ca.danielpower.podcast.data.PodcastRepository
 import ca.danielpower.podcast.data.SettingsStore
 import ca.danielpower.podcast.work.Refresh
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
-class PodcastApp : Application() {
+class PodcastApp : Application(), ImageLoaderFactory {
+    private lateinit var client: OkHttpClient
     lateinit var repository: PodcastRepository
         private set
     lateinit var settings: SettingsStore
@@ -16,7 +19,7 @@ class PodcastApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val client = OkHttpClient.Builder()
+        client = OkHttpClient.Builder()
             .podcastUserAgent()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -25,6 +28,10 @@ class PodcastApp : Application() {
         repository = PodcastRepository(this, AppDatabase.create(this), client, settings)
         Refresh.schedulePeriodic(this)
     }
+
+    // Coil would otherwise use its own client with OkHttp's default User-Agent.
+    override fun newImageLoader(): ImageLoader =
+        ImageLoader.Builder(this).okHttpClient(client).build()
 }
 
 /**

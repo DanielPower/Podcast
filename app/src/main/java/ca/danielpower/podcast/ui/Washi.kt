@@ -31,6 +31,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ca.danielpower.podcast.data.artworkCandidates
 import coil.compose.AsyncImage
 
 // Shared pieces of the Washi look (after Jiwa Jiwa's ui/Washi.kt). Use these on new screens rather
@@ -240,15 +245,28 @@ fun PaperSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: 
 /** Podcast artwork with small corners, on the track colour until it loads. */
 @Composable
 fun Artwork(url: String?, size: Dp, modifier: Modifier = Modifier, alpha: Float = 1f) {
-    AsyncImage(
-        model = url,
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        alpha = alpha,
-        modifier = modifier
+    ArtworkImage(
+        url,
+        modifier
             .size(size)
             .clip(PaperShape)
             .background(MaterialTheme.podcastColors.track),
+        alpha = alpha,
+    )
+}
+
+/** Shows the first of an artwork value's URLs that loads, moving on to the next when one fails. */
+@Composable
+fun ArtworkImage(urls: String?, modifier: Modifier = Modifier, alpha: Float = 1f) {
+    val candidates = remember(urls) { artworkCandidates(urls) }
+    var index by remember(urls) { mutableIntStateOf(0) }
+    AsyncImage(
+        model = candidates.getOrNull(index),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alpha = alpha,
+        onError = { if (index < candidates.lastIndex) index++ },
+        modifier = modifier,
     )
 }
 

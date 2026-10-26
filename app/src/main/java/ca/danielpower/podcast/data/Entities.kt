@@ -143,7 +143,7 @@ data class EpisodeWithPodcast(
     @Embedded val episode: Episode,
     @Embedded(prefix = "podcast_") val podcast: PodcastSummary,
 ) {
-    val artworkUrl: String? get() = episode.artworkUrl ?: podcast.artworkUrl
+    val artworkUrl: String? get() = joinArtwork(episode.artworkUrl, podcast.artworkUrl)
     val isPlayable: Boolean get() = episode.downloadState == DownloadState.DOWNLOADED
 }
 

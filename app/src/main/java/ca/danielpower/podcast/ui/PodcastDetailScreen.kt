@@ -51,6 +51,7 @@ import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.FundingLink
 import ca.danielpower.podcast.data.Podcast
+import ca.danielpower.podcast.data.joinArtwork
 
 /**
  * A podcast's page, subscribed or not. Opened from search, [podcast] is null until its feed has
@@ -81,7 +82,8 @@ fun PodcastDetailScreen(
                     Header(
                         title = title,
                         author = podcast?.author ?: preview?.author,
-                        artworkUrl = podcast?.artworkUrl ?: preview?.artworkUrl,
+                        // The directory's copy of the artwork is the last resort.
+                        artworkUrl = joinArtwork(podcast?.artworkUrl, preview?.artworkUrl),
                         description = podcast?.description,
                         funding = podcast?.funding.orEmpty(),
                         subscribed = podcast?.subscribed,
