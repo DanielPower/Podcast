@@ -51,6 +51,7 @@ import ca.danielpower.podcast.data.DownloadState
 import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.FundingLink
 import ca.danielpower.podcast.data.Podcast
+import ca.danielpower.podcast.data.joinArtwork
 
 /**
  * A podcast's page, subscribed or not. Opened from search, [podcast] is null until its feed has
