@@ -150,6 +150,9 @@ private fun QueueList(
     // A local copy that follows the drag; written back to the database when the drag ends.
     var items by remember { mutableStateOf(queue) }
     var dragging by remember { mutableStateOf(false) }
+    // The episode being dragged, and one dropped above the playing episode that is still taking over.
+    var draggedId by remember { mutableStateOf<Long?>(null) }
+    var takingOverId by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(queue) { if (!dragging) items = queue }
 
     val listState = rememberLazyListState()
@@ -162,7 +165,13 @@ private fun QueueList(
         }
     }
     val playingId = playerState.episodeId
-    val playingFirst = items.firstOrNull()?.episode?.id == playingId && playingId != null
+    LaunchedEffect(playingId) { if (playingId == takingOverId) takingOverId = null }
+    // The labels show where the drag will leave things: a playable episode dragged above the
+    // playing one is labelled "Now playing" before it's dropped and takes over.
+    val labelPlayingId = takingOverId ?: draggedId?.takeIf { id ->
+        takesOver(items, id, playingId)
+    } ?: playingId
+    val playingFirst = items.firstOrNull()?.episode?.id == labelPlayingId && labelPlayingId != null
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         items.forEachIndexed { index, item ->
@@ -210,18 +219,19 @@ private fun QueueList(
                                     IconButton(
                                         onClick = {},
                                         modifier = Modifier.draggableHandle(
-                                            onDragStarted = { dragging = true },
+                                            onDragStarted = {
+                                                dragging = true
+                                                draggedId = item.episode.id
+                                            },
                                             onDragStopped = {
                                                 dragging = false
-                                                val order = items.map { it.episode.id }
-                                                onReorder(order)
+                                                draggedId = null
+                                                onReorder(items.map { it.episode.id })
                                                 // A downloaded episode dropped above the playing one
                                                 // takes over from it.
-                                                val playing = playerState.episodeId
                                                 val id = item.episode.id
-                                                if (playing != null && id != playing && item.isPlayable &&
-                                                    playing in order && order.indexOf(id) < order.indexOf(playing)
-                                                ) {
+                                                if (takesOver(items, id, playerState.episodeId)) {
+                                                    takingOverId = id
                                                     onSwitchTo(id)
                                                 }
                                             },
@@ -241,6 +251,14 @@ private fun QueueList(
             }
         }
     }
+}
+
+/** Whether episode [id] sits above the playing episode in [items] and can play, so dropping it there switches to it. */
+private fun takesOver(items: List<EpisodeWithPodcast>, id: Long, playingId: Long?): Boolean {
+    if (playingId == null || id == playingId) return false
+    val index = items.indexOfFirst { it.episode.id == id }
+    val playingIndex = items.indexOfFirst { it.episode.id == playingId }
+    return index >= 0 && playingIndex >= 0 && index < playingIndex && items[index].isPlayable
 }
 
 @Composable
