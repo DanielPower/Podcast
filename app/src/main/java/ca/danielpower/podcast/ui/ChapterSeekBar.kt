@@ -109,8 +109,9 @@ fun ChapterSeekBar(
 }
 
 /**
- * The drag tooltip, centred over [fraction] of the bar's width and sitting just above the bar. It
- * takes no space, so the pane around the bar keeps its size.
+ * The drag tooltip, centred over [fraction] of the bar's width and raised well above the bar so the
+ * thumb doing the dragging doesn't cover it. It takes no space, so the pane around the bar keeps its
+ * size; it draws over whatever sits above the bar.
  */
 @Composable
 private fun SeekPreview(positionMs: Long, chapterTitle: String?, fraction: Float, barTop: Dp) {
@@ -128,7 +129,7 @@ private fun SeekPreview(positionMs: Long, chapterTitle: String?, fraction: Float
                 val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0, maxHeight = Constraints.Infinity))
                 val x = (fraction * width - placeable.width / 2f).toInt()
                     .coerceIn(0, (width - placeable.width).coerceAtLeast(0))
-                val y = barTop.roundToPx() - 6.dp.roundToPx() - placeable.height
+                val y = barTop.roundToPx() - 32.dp.roundToPx() - placeable.height
                 layout(0, 0) { placeable.place(x, y) }
             }
             .widthIn(max = 260.dp)
