@@ -217,8 +217,6 @@ private fun App(
                 state = playerState,
                 player = player,
                 chapters = playingChapters,
-                skipBackSeconds = appSettings.skipBackSeconds,
-                skipForwardSeconds = appSettings.skipForwardSeconds,
                 onClick = { playerState.episodeId?.let(openEpisode) },
             )
             BottomBar(navController, Modifier.onSizeChanged { tabBarHeight = with(density) { it.height.toDp() } })
@@ -424,7 +422,6 @@ private fun App(
                             connection?.play(vm.episodeId, startMs)
                         },
                         onPlayNext = vm::playNext,
-                        onAddToQueue = vm::addToQueue,
                         onRemoveFromQueue = vm::removeFromQueue,
                     )
                 }

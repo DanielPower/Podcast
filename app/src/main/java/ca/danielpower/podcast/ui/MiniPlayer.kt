@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,8 +32,6 @@ fun MiniPlayer(
     state: PlayerUiState,
     player: Player?,
     chapters: List<Chapter>,
-    skipBackSeconds: Int,
-    skipForwardSeconds: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -56,11 +53,11 @@ fun MiniPlayer(
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             Artwork(state.artworkUri, 40.dp)
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
                 Text(
                     state.title.orEmpty(),
                     style = MaterialTheme.typography.titleSmall,
@@ -83,9 +80,6 @@ fun MiniPlayer(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = { player.seekBack() }) {
-                SkipIcon(skipBackSeconds, forward = false)
-            }
             Box(
                 Modifier
                     .size(44.dp)
@@ -99,9 +93,6 @@ fun MiniPlayer(
                     contentDescription = if (state.isPlaying) "Pause" else "Play",
                     tint = MaterialTheme.colorScheme.onPrimary,
                 )
-            }
-            IconButton(onClick = { player.seekForward() }) {
-                SkipIcon(skipForwardSeconds, forward = true)
             }
         }
     }
