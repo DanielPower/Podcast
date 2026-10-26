@@ -172,6 +172,7 @@ class PodcastRepository(
                 author = feed.author,
                 artworkUrl = feed.artworkUrl,
                 description = feed.description,
+                funding = feed.funding,
                 subscribed = false,
                 openedAt = System.currentTimeMillis(),
             ),
@@ -202,7 +203,7 @@ class PodcastRepository(
     /** Returns how many new episodes the feed had. */
     private suspend fun refresh(podcast: Podcast): Int {
         val feed = fetchFeed(podcast.feedUrl)
-        podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.artworkUrl, feed.description)
+        podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.artworkUrl, feed.description, feed.funding)
         val known = episodes.getGuids(podcast.id).toHashSet()
         val (old, fresh) = feed.episodes.distinctBy { it.guid }.partition { it.guid in known }
         episodes.updateAllMetadata(podcast.id, old)

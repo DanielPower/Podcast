@@ -35,4 +35,18 @@ class FeedParserTest {
         assertEquals("https://example.com/a.jpg", chapters[0].imageUrl)
         assertEquals("https://example.com", chapters[1].url)
     }
+
+    @Test
+    fun readsFundingLinks() {
+        assertEquals(
+            FundingLink("https://patreon.com/show", "Support the show"),
+            FeedParser.fundingLink(" https://patreon.com/show ", "\n  Support   the show\n"),
+        )
+        // No text: the host stands in.
+        assertEquals("ko-fi.com", FeedParser.fundingLink("https://www.ko-fi.com/show", " ")?.label)
+        assertEquals(128, FeedParser.fundingLink("https://example.com", "x".repeat(200))?.label?.length)
+        assertNull(FeedParser.fundingLink("lightning:abc", "Boost"))
+        assertNull(FeedParser.fundingLink("javascript:alert(1)", "Click"))
+        assertNull(FeedParser.fundingLink(null, "Support"))
+    }
 }

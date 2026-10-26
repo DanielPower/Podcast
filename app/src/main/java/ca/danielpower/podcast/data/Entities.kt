@@ -25,7 +25,12 @@ data class Podcast(
     @ColumnInfo(defaultValue = "1") val subscribed: Boolean = true,
     /** When an unsubscribed podcast's page was last opened. It's kept for a day after that. */
     @ColumnInfo(defaultValue = "0") val openedAt: Long = 0,
+    /** Where to support the show, from the feed's `<podcast:funding>` tags. */
+    @ColumnInfo(defaultValue = "[]") val funding: List<FundingLink> = emptyList(),
 )
+
+/** A link to support a podcast (Patreon, Ko-fi and the like), with the label the feed gives it. */
+data class FundingLink(val url: String, val label: String)
 
 enum class DownloadState { NONE, QUEUED, DOWNLOADING, DOWNLOADED, FAILED }
 

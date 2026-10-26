@@ -50,9 +50,16 @@ interface PodcastDao {
     /** Updates what the feed says, leaving the subscription alone. */
     @Query(
         """UPDATE podcasts SET title = :title, author = :author, artworkUrl = COALESCE(:artworkUrl, artworkUrl),
-        description = :description WHERE id = :id""",
+        description = :description, funding = :funding WHERE id = :id""",
     )
-    suspend fun updateFeedInfo(id: Long, title: String, author: String?, artworkUrl: String?, description: String?)
+    suspend fun updateFeedInfo(
+        id: Long,
+        title: String,
+        author: String?,
+        artworkUrl: String?,
+        description: String?,
+        funding: List<FundingLink>,
+    )
 
     @Query("UPDATE podcasts SET openedAt = :now WHERE id = :id")
     suspend fun markOpened(id: Long, now: Long)
