@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +70,7 @@ import ca.danielpower.podcast.data.DirectoryResult
 import ca.danielpower.podcast.data.DownloadProgress
 import ca.danielpower.podcast.data.feedUrlOrNull
 import ca.danielpower.podcast.playback.PlayerConnection
+import ca.danielpower.podcast.playback.PlayerUiState
 import ca.danielpower.podcast.playback.rememberPlayerUiState
 import ca.danielpower.podcast.ui.AppViewModelFactory
 import ca.danielpower.podcast.ui.EpisodeScreen
@@ -77,6 +79,7 @@ import ca.danielpower.podcast.ui.HistoryScreen
 import ca.danielpower.podcast.ui.HistoryViewModel
 import ca.danielpower.podcast.ui.MiniPlayer
 import ca.danielpower.podcast.ui.PaperNavBar
+import ca.danielpower.podcast.ui.PlaybackErrorMessages
 import ca.danielpower.podcast.ui.PaperNavItem
 import ca.danielpower.podcast.ui.PodcastDetailScreen
 import ca.danielpower.podcast.ui.PodcastDetailViewModel
@@ -190,6 +193,10 @@ private fun App(
         playerState.episodeId?.let { context.repository.observeChapters(it) } ?: flowOf(emptyList<Chapter>())
     }.collectAsStateWithLifecycle(emptyList())
     val openEpisode = { id: Long -> navController.navigate("episode/$id") { launchSingleTop = true } }
+    // Shown above the mini player, or on an episode's page above its controls.
+    val playbackErrors = remember { SnackbarHostState() }
+    PlaybackErrorMessages(player, playbackErrors)
+    val onEpisodePage = navController.currentBackStackEntryAsState().value?.destination?.route == EPISODE_ROUTE
     val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
 
     // From a notification tap. On a cold start this waits for the player to connect, and the
@@ -380,7 +387,7 @@ private fun App(
                 "podcast/{podcastId}",
                 arguments = listOf(navArgument("podcastId") { type = NavType.LongType }),
             ) {
-                TabPage(chromeHeight) { PodcastPage(openEpisode, connection, onBack = { navController.popBackStack() }) }
+                TabPage(chromeHeight) { PodcastPage(openEpisode, connection, playerState, onBack = { navController.popBackStack() }) }
             }
             // From search: the feed isn't necessarily subscribed to, or even loaded yet.
             composable(
@@ -392,7 +399,7 @@ private fun App(
                     }
                 },
             ) {
-                TabPage(chromeHeight) { PodcastPage(openEpisode, connection, onBack = { navController.popBackStack() }) }
+                TabPage(chromeHeight) { PodcastPage(openEpisode, connection, playerState, onBack = { navController.popBackStack() }) }
             }
             composable(
                 EPISODE_ROUTE,
@@ -424,15 +431,24 @@ private fun App(
                             connection?.play(vm.episodeId, startMs)
                         },
                         onPlayNext = vm::playNext,
+                        playbackErrors = playbackErrors,
                     )
                 }
             }
+        }
+        if (!onEpisodePage) {
+            SnackbarHost(playbackErrors, Modifier.align(Alignment.BottomCenter).padding(bottom = chromeHeight))
         }
     }
 }
 
 @Composable
-private fun PodcastPage(openEpisode: (Long) -> Unit, connection: PlayerConnection?, onBack: () -> Unit) {
+private fun PodcastPage(
+    openEpisode: (Long) -> Unit,
+    connection: PlayerConnection?,
+    playerState: PlayerUiState,
+    onBack: () -> Unit,
+) {
     val vm: PodcastDetailViewModel = viewModel(factory = AppViewModelFactory)
     val podcast by vm.podcast.collectAsStateWithLifecycle()
     val episodes by vm.episodes.collectAsStateWithLifecycle()
@@ -455,6 +471,9 @@ private fun PodcastPage(openEpisode: (Long) -> Unit, connection: PlayerConnectio
             vm.addToQueue(id)
             connection?.play(id)
         },
+        playerState = playerState,
+        onPause = { connection?.controller?.pause() },
+        onResume = { connection?.controller?.play() },
         onOpenEpisode = openEpisode,
         onBack = onBack,
     )

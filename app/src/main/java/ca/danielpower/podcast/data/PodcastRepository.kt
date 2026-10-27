@@ -11,11 +11,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Cache
+import okhttp3.CacheControl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.time.LocalDate
+import java.util.concurrent.TimeUnit
 
 data class RefreshResult(val newEpisodes: Int, val failedFeeds: Int, val feeds: Int)
 
@@ -44,6 +47,15 @@ class PodcastRepository(
     private val stats = db.statsDao()
 
     val directory = DirectorySearch(client)
+
+    /**
+     * Fetches feeds with a cache, so a refresh asks the server whether the feed changed (ETag or
+     * Last-Modified) and an unchanged one answers 304 with no body. Only feeds use it: Coil keeps
+     * its own cache of the artwork.
+     */
+    private val feedClient = client.newBuilder()
+        .cache(Cache(File(context.cacheDir, "feeds"), 50L * 1024 * 1024))
+        .build()
 
     /** For work that should finish even if the screen that started it is closed. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -239,7 +251,8 @@ class PodcastRepository(
 
     /** Returns how many new episodes the feed had. */
     private suspend fun refresh(podcast: Podcast): Int {
-        val feed = fetchFeed(podcast.feedUrl)
+        // Unchanged since the last refresh: nothing new to store.
+        val feed = fetchFeed(podcast.feedUrl, skipIfUnchanged = true) ?: return 0
         podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.artworkUrl, feed.description, feed.funding)
         val known = episodes.getGuids(podcast.id).toHashSet()
         val (old, fresh) = feed.episodes.distinctBy { it.guid }.partition { it.guid in known }
@@ -297,6 +310,14 @@ class PodcastRepository(
 
     /** Restarts a failed download, keeping the episode's place in the queue. */
     suspend fun retryDownload(episodeId: Long) = startDownload(episodeId)
+
+    /** Deletes a download that won't play and fetches it again, keeping the episode's place in the queue. */
+    suspend fun redownload(episodeId: Long) {
+        val episode = episodes.get(episodeId) ?: return
+        episode.localPath?.let { File(it).delete() }
+        partialFile(episodeId).delete()
+        startDownload(episodeId)
+    }
 
     suspend fun moveToFront(episodeId: Long) = episodes.moveToFront(episodeId)
 
@@ -435,10 +456,20 @@ class PodcastRepository(
         Downloads.enqueue(context, episodeId)
     }
 
-    private suspend fun fetchFeed(url: String): ParsedFeed = withContext(Dispatchers.IO) {
-        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+    private suspend fun fetchFeed(url: String): ParsedFeed = fetchFeed(url, skipIfUnchanged = false)!!
+
+    /** The feed, or with [skipIfUnchanged], null when the server says it hasn't changed since last fetched. */
+    private suspend fun fetchFeed(url: String, skipIfUnchanged: Boolean): ParsedFeed? = withContext(Dispatchers.IO) {
+        // Always checked with the server, never answered from the cache alone, so new episodes
+        // show up even when a feed says it can be cached for an hour.
+        val request = Request.Builder().url(url).cacheControl(REVALIDATE).build()
+        feedClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code} for $url")
-            FeedParser.parse(response.body!!.byteStream())
+            if (skipIfUnchanged && response.networkResponse?.code == 304) {
+                null
+            } else {
+                FeedParser.parse(response.body!!.byteStream())
+            }
         }
     }
 
@@ -468,5 +499,6 @@ class PodcastRepository(
     companion object {
         private const val TAG = "PodcastRepository"
         private const val DAY_MS = 24L * 60 * 60 * 1000
+        private val REVALIDATE = CacheControl.Builder().maxAge(0, TimeUnit.SECONDS).build()
     }
 }

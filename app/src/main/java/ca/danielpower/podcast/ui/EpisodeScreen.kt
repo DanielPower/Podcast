@@ -43,6 +43,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -132,6 +134,8 @@ fun EpisodeScreen(
     onBack: () -> Unit,
     onPlay: (startMs: Long?) -> Unit,
     onPlayNext: () -> Unit,
+    /** Says when the episode can't play, just above the controls. */
+    playbackErrors: SnackbarHostState,
 ) {
     val isCurrent = item != null && player != null && playerState.episodeId == item.episode.id
     var tab by rememberSaveable { mutableIntStateOf(EpisodeTab.Notes.ordinal) }
@@ -176,6 +180,7 @@ fun EpisodeScreen(
                     )
                     EpisodeTab.Details -> Details(item, queueIndex)
                 }
+                SnackbarHost(playbackErrors, Modifier.align(Alignment.BottomCenter))
             }
         }
         BottomPane(
