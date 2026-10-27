@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.AlertDialog
@@ -57,6 +58,7 @@ import ca.danielpower.podcast.data.EpisodeWithPodcast
 import ca.danielpower.podcast.data.FundingLink
 import ca.danielpower.podcast.data.Podcast
 import ca.danielpower.podcast.data.joinArtwork
+import ca.danielpower.podcast.playback.PlayerUiState
 
 /**
  * A podcast's page, subscribed or not. Opened from search, [podcast] is null until its feed has
@@ -76,6 +78,10 @@ fun PodcastDetailScreen(
     onStopCatchUp: () -> Unit,
     onAddToQueue: (Long) -> Unit,
     onPlay: (Long) -> Unit,
+    /** The player, for marking the episode loaded in it; [onPause] and [onResume] act on that one. */
+    playerState: PlayerUiState,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onOpenEpisode: (Long) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -120,9 +126,12 @@ fun PodcastDetailScreen(
                             upNextId -> CatchUpMark.UP_NEXT
                             else -> null
                         },
+                        player = playerState.takeIf { it.episodeId == item.episode.id },
                         onClick = { onOpenEpisode(item.episode.id) },
                         onAddToQueue = { onAddToQueue(item.episode.id) },
                         onPlay = { onPlay(item.episode.id) },
+                        onPause = onPause,
+                        onResume = onResume,
                     )
                     HorizontalDivider(Modifier.padding(horizontal = SideMargin), color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -277,14 +286,24 @@ private fun FundingChip(label: String, onClick: () -> Unit) {
 private fun EpisodeRow(
     item: EpisodeWithPodcast,
     catchUpMark: CatchUpMark?,
+    /** Set when this is the episode loaded in the player. */
+    player: PlayerUiState?,
     onClick: () -> Unit,
     onAddToQueue: () -> Unit,
     onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
 ) {
     val episode = item.episode
+    val colors = MaterialTheme.colorScheme
+    val accent = colors.primary
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = SideMargin, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (player != null) colors.primaryContainer else colors.surface)
+            .clickable(onClick = onClick)
+            .padding(start = SideMargin, end = 4.dp, top = 10.dp, bottom = 10.dp),
     ) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -296,28 +315,47 @@ private fun EpisodeRow(
             )
             val details = listOfNotNull(
                 formatDate(episode.publishedAt).takeIf { it.isNotEmpty() },
-                episode.durationMs?.let(::formatDuration),
-                "Played".takeIf { episode.played },
+                // The one in the player shows what's left of it instead of its length.
+                if (player != null && player.durationMs > 0) {
+                    "${formatMinutes((player.durationMs - player.positionMs).coerceAtLeast(0))} left"
+                } else {
+                    episode.durationMs?.let(::formatDuration)
+                },
+                "Played".takeIf { episode.played && player == null },
             ).joinToString(" · ")
-            val accent = MaterialTheme.colorScheme.primary
             Text(
-                when (catchUpMark) {
-                    null -> AnnotatedString(details)
+                when {
+                    player != null -> buildAnnotatedString {
+                        withStyle(SpanStyle(color = accent, fontWeight = FontWeight.Bold)) {
+                            append(if (player.isPlaying) "Playing" else "Paused")
+                        }
+                        append(" · ")
+                        append(details)
+                    }
+                    catchUpMark == null -> AnnotatedString(details)
                     // The episode catching up is on stands out; the one after it is only named.
-                    CatchUpMark.IN_QUEUE -> buildAnnotatedString {
+                    catchUpMark == CatchUpMark.IN_QUEUE -> buildAnnotatedString {
                         append(details)
                         append(" · ")
                         withStyle(SpanStyle(color = accent, fontWeight = FontWeight.Bold)) { append("In queue") }
                     }
-                    CatchUpMark.UP_NEXT -> AnnotatedString("$details · Up next")
+                    else -> AnnotatedString("$details · Up next")
                 },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // Jumps to the front of the queue and plays now, streaming until the download finishes.
-        IconButton(onClick = onPlay) {
-            Icon(Icons.Default.PlayArrow, contentDescription = "Play now")
+        when {
+            player?.isPlaying == true -> IconButton(onClick = onPause) {
+                Icon(Icons.Default.Pause, contentDescription = "Pause", tint = accent)
+            }
+            player != null -> IconButton(onClick = onResume) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = accent)
+            }
+            // Jumps to the front of the queue and plays now, streaming until the download finishes.
+            else -> IconButton(onClick = onPlay) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Play now")
+            }
         }
         when {
             episode.downloadState == DownloadState.QUEUED || episode.downloadState == DownloadState.DOWNLOADING ->

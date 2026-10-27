@@ -311,6 +311,14 @@ class PodcastRepository(
     /** Restarts a failed download, keeping the episode's place in the queue. */
     suspend fun retryDownload(episodeId: Long) = startDownload(episodeId)
 
+    /** Deletes a download that won't play and fetches it again, keeping the episode's place in the queue. */
+    suspend fun redownload(episodeId: Long) {
+        val episode = episodes.get(episodeId) ?: return
+        episode.localPath?.let { File(it).delete() }
+        partialFile(episodeId).delete()
+        startDownload(episodeId)
+    }
+
     suspend fun moveToFront(episodeId: Long) = episodes.moveToFront(episodeId)
 
     /** Puts the episode second in the queue, right after the one playing (downloading it if needed). */
